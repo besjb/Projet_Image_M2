@@ -15,6 +15,6 @@ Etudiants:
 L'objectif principal de ce projet est d'implémenter deux méthodes de restauration d'images (une sans CNN et une avec CNN) et d'en étudier les résultats, en les comparant sur une base de données d'images inconnue du réseau de neurones.
 
 ## Organisation du dépot Git
-- CR : l'ensemble des comptes-rendus ainsi que les slides des présentations orales et la vidéo de démonstration finale
+- CRs : l'ensemble des comptes-rendus ainsi que les slides des présentations orales et la vidéo de démonstration finale
 - Code : l'ensemble des fichiers sources du projet
 - Ressources : l'ensemble des articles ou autres supports qui nous ont aidé lors de la réalisation de ce projet
