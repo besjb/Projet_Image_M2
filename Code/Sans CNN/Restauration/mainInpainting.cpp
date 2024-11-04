@@ -1,28 +1,52 @@
-#include <opencv2/opencv.hpp>
-#include <opencv2/xphoto/inpainting.hpp>
-#include <iostream>
- 
-using namespace cv;
- 
-int main(int argc, char** argv)
-{
-    Mat original_, mask_;
-    original_ = imread("../Assets/test.jpg");
-    mask_ = imread("../Assets/Mask.png", IMREAD_GRAYSCALE);
- 
-    Mat mask;
-    resize(mask_, mask, original_.size(), 0.0, 0.0, cv::INTER_NEAREST);
- 
-    Mat im_distorted(original_.size(), original_.type(), Scalar::all(0));
-    original_.copyTo(im_distorted, mask);
- 
-    Mat reconstructed;
-    xphoto::inpaint(im_distorted, mask, reconstructed, xphoto::INPAINT_FSR_FAST);
- 
-    imshow("orignal image", original_);
-    imshow("distorted image", im_distorted);
-    imshow("reconstructed image", reconstructed);
-    waitKey();
- 
-    return 0;
-}
+import cv2
+import numpy as np
+
+mask = None
+drawing = False
+brush_size = 25
+
+def draw_mask(event, x, y, flags, param):
+    global mask, drawing
+
+    if event == cv2.EVENT_LBUTTONDOWN:
+        drawing = True
+    elif event == cv2.EVENT_MOUSEMOVE:
+        if drawing:
+            cv2.circle(mask, (x, y), brush_size, (0, 0, 0), -1)
+    elif event == cv2.EVENT_LBUTTONUP:
+        drawing = False 
+
+damaged_img = cv2.imread("Assets/Test10.jpg")
+
+if damaged_img is None:
+    print("Error: Image not found. Please check the path.")
+    exit()
+
+height, width = damaged_img.shape[:2]
+mask = np.ones((height, width), dtype=np.uint8) * 255
+
+cv2.namedWindow("Draw Mask")
+cv2.setMouseCallback("Draw Mask", draw_mask)
+
+while True:
+    mask_display = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    combined_display = cv2.addWeighted(damaged_img, 0.5, mask_display, 0.5, 0) 
+    cv2.imshow("Draw Mask", combined_display)
+
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('s'):
+        cv2.imwrite('Assets/mask.jpg', mask)
+        print("Mask saved as 'Assets/mask.jpg'")
+
+        mask_inverted = cv2.bitwise_not(mask)
+
+        inpainted_img = cv2.inpaint(damaged_img, mask_inverted, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+
+        cv2.imshow("Inpainted Image", inpainted_img)
+        cv2.imwrite('Assets/inpainted_image.jpg', inpainted_img)
+        print("Inpainted image saved as 'Assets/inpainted_image.jpg'")
+
+    elif key == ord('q'):  # Quit
+        break
+
+cv2.destroyAllWindows()
