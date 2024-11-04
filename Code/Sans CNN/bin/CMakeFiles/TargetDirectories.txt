@@ -1,3 +1,0 @@
-/home/evan/Bureau/M2/Projets/Projet_Image_M2/Code/Sans CNN/bin/CMakeFiles/main.dir
-/home/evan/Bureau/M2/Projets/Projet_Image_M2/Code/Sans CNN/bin/CMakeFiles/edit_cache.dir
-/home/evan/Bureau/M2/Projets/Projet_Image_M2/Code/Sans CNN/bin/CMakeFiles/rebuild_cache.dir
