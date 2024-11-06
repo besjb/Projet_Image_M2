@@ -39,7 +39,8 @@ while True:
         print("Mask saved as 'Assets/mask.jpg'")
 
         mask_inverted = cv2.bitwise_not(mask)
-
+        kernel = np.ones( (7,7) , np.uint8)
+        mask = cv2.dilate(src=thresh1, kernel=kernel, iterations=1)
         inpainted_img = cv2.inpaint(damaged_img, mask_inverted, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
 
         cv2.imshow("Inpainted Image", inpainted_img)
