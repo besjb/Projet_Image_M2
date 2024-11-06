@@ -51,7 +51,33 @@ if image is None:
     print("Impossible de charger l'image.")
     exit(-1)
 
-damaged_img = image.copy()
+cv2.imshow("Image originale", image)
+print("1: Flou Gaussien")
+print("2: Flou Médian")
+print("3: Flou Bilatéral")
+print("q: Quitter")
+
+key = cv2.waitKey(0) & 0xFF
+
+if key == ord('1'):  # Flou Gaussien
+    kernel_size = (7, 7)
+    sigma = 0
+    filtered_image = cv2.GaussianBlur(image, kernel_size, sigma)
+    cv2.imshow("Image filtree (Gaussien)", filtered_image)
+
+elif key == ord('2'):  # Flou Médian
+    kernel_size = 7
+    filtered_image = cv2.medianBlur(image, kernel_size)
+    cv2.imshow("Image filtree (Median)", filtered_image)
+
+elif key == ord('3'):  # Flou Bilatéral
+    diameter = 15  
+    sigma_color = 75  
+    sigma_space = 75  
+    filtered_image = cv2.bilateralFilter(image, diameter, sigma_color, sigma_space)
+    cv2.imshow("Image filtree (Bilateral)", filtered_image)
+
+damaged_img = filtered_image.copy()
 height, width = damaged_img.shape[:2]
 mask = np.ones((height, width), dtype=np.uint8) * 255 
 
@@ -77,8 +103,20 @@ while True:
         cv2.imwrite('Assets/inpainted_image.jpg', inpainted_img)
         print("Inpainted image saved as 'Assets/inpainted_image.jpg'")
 
+        # Égalisation d'histogramme
+        equalized_image = cv2.equalizeHist(inpainted_img)
+        cv2.imshow("Image egalisee", equalized_image)
+
+        # Déconvolution
+        noise_var, signal_var = estimate_noise_and_signal_variance(image, inpainted_img, np.ones((5, 5)) / 5)
+        kernel = np.ones((3, 3)) / 5
+        deconvolved_image = wiener_deconvolution(inpainted_img, kernel, noise_var, signal_var)
+        deconvolved_image2 = wiener_deconvolution(deconvolved_image, kernel, noise_var, signal_var)
+
+        cv2.imshow("Image Deconvoluee", deconvolved_image.astype(np.uint8))
+
         # Expansion dynamique
-        expanded_image = dynamic_range_expansion(inpainted_img)
+        expanded_image = dynamic_range_expansion(deconvolved_image2)
         cv2.imshow("Expansion dynamique de l'image (apres deconvolution)", expanded_image)
 
     elif key == ord('q'):  # Quitter

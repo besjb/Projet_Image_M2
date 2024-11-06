@@ -10,7 +10,7 @@ cv2.imshow("Image originale", image)
 
 equalized_image = cv2.equalizeHist(image)
 
-cv2.imshow("Image égalisée", equalized_image)
+cv2.imshow("Image egalisee", equalized_image)
 
 while True:
     if cv2.waitKey(1) & 0xFF == ord('q'): 
