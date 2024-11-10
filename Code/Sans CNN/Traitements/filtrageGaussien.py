@@ -1,12 +1,12 @@
 import cv2
 import numpy as np
 
-image = cv2.imread("Assets/../1.jpg")
+image = cv2.imread("../Assets/27.jpg")
 if image is None:
     print("Impossible de charger l'image.")
     exit(-1)
 
-kernel_size = (15, 15)
+kernel_size = (13, 13)
 sigma = 0
 filtered_image = cv2.GaussianBlur(image, kernel_size, sigma)
 

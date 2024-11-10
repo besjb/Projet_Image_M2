@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-image = cv2.imread("Assets/Test7.png", cv2.IMREAD_GRAYSCALE)
+image = cv2.imread("../Assets2/27_15x15.png", cv2.IMREAD_GRAYSCALE)
 if image is None:
     print("Impossible de charger l'image.")
     exit(-1)

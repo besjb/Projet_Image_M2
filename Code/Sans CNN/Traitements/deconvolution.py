@@ -20,7 +20,7 @@ def wiener_deconvolution(image, kernel, noise_var, signal_var):
     result = np.fft.ifft2(result_ft)
     return np.abs(result)
 
-image = cv2.imread("Assets/inpainted_image.jpg", cv2.IMREAD_GRAYSCALE)
+image = cv2.imread("../Assets2/27_7x7.png", cv2.IMREAD_GRAYSCALE)
 if image is None:
     print("Impossible de charger l'image.")
     exit(-1)
