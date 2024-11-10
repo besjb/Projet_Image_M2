@@ -8,8 +8,13 @@ def calculate_psnr(original, processed):
     psnr = 20 * np.log10(255.0 / np.sqrt(mse))
     return psnr
 
-image = cv2.imread("Assets/Test2.jpg", cv2.IMREAD_GRAYSCALE)
+image = cv2.imread("../Assets/3_avec_bruit.jpg", cv2.IMREAD_GRAYSCALE)
 if image is None:
+    print("Impossible de charger l'image.")
+    exit(-1)
+
+image_originale = cv2.imread("../Assets/3.jpg", cv2.IMREAD_GRAYSCALE)
+if image_originale is None:
     print("Impossible de charger l'image.")
     exit(-1)
 
@@ -46,7 +51,7 @@ for radius in range(10, int(min(height/2, width/2)), 10):  # Tester des rayons p
     filtered_image_normalized = np.uint8(filtered_image_normalized)
     
     # Calculer le PSNR entre l'image originale et l'image filtrée
-    psnr = calculate_psnr(image, filtered_image_normalized)
+    psnr = calculate_psnr(image_originale, filtered_image_normalized)
     print(f"Rayon: {radius}, PSNR: {psnr:.2f} dB")
     
     if psnr > best_psnr:
@@ -57,10 +62,11 @@ for radius in range(10, int(min(height/2, width/2)), 10):  # Tester des rayons p
 
 print(f"Meilleur rayon: {best_radius} avec un PSNR de {best_psnr:.2f} dB")
 
-cv2.imshow("Image originale", image)
-cv2.imshow("Spectre des fréquences (avant filtrage)", np.uint8(magnitude_spectrum))
-cv2.imshow("Spectre des fréquences (meilleur filtrage)", np.uint8(best_magnitude_spectrum_filtered))
-cv2.imshow("Image filtrée avec meilleur PSNR", best_filtered_image)
+cv2.imshow("Image originale buitee", image)
+cv2.imshow("Verite de terrain", image_originale)
+cv2.imshow("Spectre des frequences (avant filtrage)", np.uint8(magnitude_spectrum))
+cv2.imshow("Spectre des frequences (meilleur filtrage)", np.uint8(best_magnitude_spectrum_filtered))
+cv2.imshow("Image filtree avec meilleur PSNR", best_filtered_image)
 
 while True:
     if cv2.waitKey(1) & 0xFF == ord('q'):

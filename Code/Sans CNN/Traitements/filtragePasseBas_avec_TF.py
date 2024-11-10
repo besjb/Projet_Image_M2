@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-image = cv2.imread("Assets/Test.jpg", cv2.IMREAD_GRAYSCALE)
+image = cv2.imread("../Assets/4.jpg", cv2.IMREAD_GRAYSCALE)
 if image is None:
     print("Impossible de charger l'image.")
     exit(-1)
@@ -31,9 +31,9 @@ filtered_image = cv2.normalize(filtered_image, None, 0, 255, cv2.NORM_MINMAX)
 filtered_image = np.uint8(filtered_image)
 
 cv2.imshow("Image originale", image)
-cv2.imshow("Spectre des fréquences (avant filtrage)", np.uint8(magnitude_spectrum))
-cv2.imshow("Spectre des fréquences (après filtrage)", np.uint8(magnitude_spectrum_filtered))
-cv2.imshow("Image filtrée avec passe-bas", filtered_image)
+cv2.imshow("Spectre des frequences (avant filtrage)", np.uint8(magnitude_spectrum))
+cv2.imshow("Spectre des frequences (apres filtrage)", np.uint8(magnitude_spectrum_filtered))
+cv2.imshow("Image filtree avec passe-bas", filtered_image)
 
 while True:
     if cv2.waitKey(1) & 0xFF == ord('q'): 
