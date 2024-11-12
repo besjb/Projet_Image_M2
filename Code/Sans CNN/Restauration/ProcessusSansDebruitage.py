@@ -32,6 +32,28 @@ def dynamic_range_expansion(image, y_min=0, y_max=255):
     
     return expanded_image.astype(np.uint8)
 
+# Calcul du PSNR
+def calculate_psnr(original, restored):
+    return cv2.PSNR(original, restored)
+
+# Calcul du SSIM
+def calculate_ssim(original, restored):
+    K1 = 0.01
+    K2 = 0.03
+    L = 255
+    mu_x = np.mean(original)
+    mu_y = np.mean(restored)
+    sigma_x_sq = np.var(original)
+    sigma_y_sq = np.var(restored)
+    sigma_xy = np.cov(original.flatten(), restored.flatten())[0, 1]
+    C1 = (K1 * L) ** 2
+    C2 = (K2 * L) ** 2
+    numerator = (2 * mu_x * mu_y + C1) * (2 * sigma_xy + C2)
+    denominator = (mu_x ** 2 + mu_y ** 2 + C1) * (sigma_x_sq + sigma_y_sq + C2)
+    ssim_value = numerator / denominator
+    return ssim_value
+
+
 mask = None
 drawing = False
 brush_size = 15
@@ -80,6 +102,13 @@ while True:
         # Expansion dynamique
         expanded_image = dynamic_range_expansion(inpainted_img)
         cv2.imshow("Expansion dynamique de l'image (apres deconvolution)", expanded_image)
+
+        # Calcul des métriques de qualité entre image originale et l'image restaurée
+        psnr_value = calculate_psnr(image, expanded_image)
+        ssim_value = calculate_ssim(image, expanded_image)
+
+        print(f"PSNR: {psnr_value} dB")
+        print(f"SSIM: {ssim_value}")
 
     elif key == ord('q'):  # Quitter
         break
