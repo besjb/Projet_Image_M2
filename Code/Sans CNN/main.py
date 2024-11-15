@@ -71,7 +71,7 @@ def histogram_distance(image1, image2):
 
 mask = None
 drawing = False
-brush_size = 15
+brush_size = 5
 
 def draw_mask(event, x, y, flags, param):
     global mask, drawing
@@ -121,8 +121,12 @@ mask = np.ones((height, width), dtype=np.uint8) * 255
 cv2.namedWindow("Draw Mask")
 cv2.setMouseCallback("Draw Mask", draw_mask)
 
+# Égalisation d'histogramme
+equalized_image2 = cv2.equalizeHist(damaged_img)
+cv2.imshow("Image egalisee2", equalized_image2)
+
 while True:
-    damaged_img_color = cv2.cvtColor(damaged_img, cv2.COLOR_GRAY2BGR)
+    damaged_img_color = cv2.cvtColor(equalized_image2, cv2.COLOR_GRAY2BGR)
 
     mask_display = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
     combined_display = cv2.addWeighted(damaged_img_color, 0.5, mask_display, 0.5, 0)

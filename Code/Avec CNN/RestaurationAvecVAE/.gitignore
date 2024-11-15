@@ -1,0 +1,4 @@
+dataset/
+dataset_preprocessed/
+
+vae_weights_256x256.weights.h5
