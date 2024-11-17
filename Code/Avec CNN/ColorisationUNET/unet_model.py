@@ -36,6 +36,6 @@ def build_unet(input_shape=(256, 256, 1)):
     c7 = layers.Conv2D(64, (3, 3), activation="relu", padding="same")(u1)
     c7 = layers.Conv2D(64, (3, 3), activation="relu", padding="same")(c7)
 
-    outputs = layers.Conv2D(3, (1, 1), activation="sigmoid")(c7)  # Sortie RGB
+    outputs = layers.Conv2D(3, (1, 1), activation="sigmoid")(c7)
 
     return Model(inputs, outputs)

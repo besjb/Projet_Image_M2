@@ -25,18 +25,18 @@ if damaged_img is None:
 height, width = damaged_img.shape[:2]
 mask = np.ones((height, width), dtype=np.uint8) * 255
 
-cv2.namedWindow("Draw Mask")
-cv2.setMouseCallback("Draw Mask", draw_mask)
+cv2.namedWindow("Dessiner le masque")
+cv2.setMouseCallback("Dessiner le masque", draw_mask)
 
 while True:
     mask_display = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
     combined_display = cv2.addWeighted(damaged_img, 0.5, mask_display, 0.5, 0) 
-    cv2.imshow("Draw Mask", combined_display)
+    cv2.imshow("Dessiner le masque", combined_display)
 
     key = cv2.waitKey(1) & 0xFF
     if key == ord('s'):
         cv2.imwrite('Assets/mask.jpg', mask)
-        print("Mask saved as 'Assets/mask.jpg'")
+        print("Masque sauvegardé as 'Assets/mask.jpg'")
 
         mask_inverted = cv2.bitwise_not(mask)
         kernel = np.ones( (7,7) , np.uint8)
@@ -47,7 +47,7 @@ while True:
         cv2.imwrite('Assets/inpainted_image.jpg', inpainted_img)
         print("Inpainted image saved as 'Assets/inpainted_image.jpg'")
 
-    elif key == ord('q'):  # Quit
+    elif key == ord('q'):
         break
 
 cv2.destroyAllWindows()

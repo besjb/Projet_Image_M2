@@ -15,7 +15,7 @@ def wiener_deconvolution(image, kernel, noise_var, signal_var):
 
     result = np.fft.ifft2(result_ft)
     result = np.abs(result)
-    result = np.clip(result, 0, 255)  # Limite la plage pour éviter les pixels noirs
+    result = np.clip(result, 0, 255)
     return result.astype(np.uint8)
 
 # Estimation des variances de bruit et signal

@@ -110,7 +110,7 @@ while True:
         print(f"PSNR: {psnr_value} dB")
         print(f"SSIM: {ssim_value}")
 
-    elif key == ord('q'):  # Quitter
+    elif key == ord('q'):
         break
 
 cv2.destroyAllWindows()
