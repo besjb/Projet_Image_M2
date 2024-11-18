@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 # Dossiers source et cible
-source_folder = "Dataset"
+source_folder = "../ColorisationUNET/Dataset"
 target_folder = "Dataset_preprocessed"
 
 # Créer les sous-dossiers pour les images dégradées et les masques
