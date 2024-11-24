@@ -1,79 +1,117 @@
 import os
+from PIL import Image, ImageDraw
 import numpy as np
-from PIL import Image, ImageEnhance, ImageDraw
 import random
 
-source_folder = 'Dataset/Real_Photos'
-synthesized_folder = 'Dataset/Synthesized_Old_Photos'
-old_photos_folder = 'Dataset/Old_Photos'
+input_folder = 'Dataset/Real_Photos'
+output_folder_with_degradations = 'Dataset/Synthesized_Old_Photos'
+output_folder_resized = 'Dataset/Old_Photos'
 
-os.makedirs(synthesized_folder, exist_ok=True)
-os.makedirs(old_photos_folder, exist_ok=True)
+resize_target_size = (256, 256)
+os.makedirs(output_folder_with_degradations, exist_ok=True)
 
-def add_fading(image):
-    """Réduit le contraste et la saturation des couleurs pour simuler un effet de décoloration."""
-    enhancer = ImageEnhance.Color(image)
-    image = enhancer.enhance(0.5)
-    enhancer = ImageEnhance.Contrast(image)
-    image = enhancer.enhance(0.5)
+def validate_and_clean_images(folder):
+    """Valide les fichiers d'image et supprime ceux qui sont invalides."""
+    valid_extensions = {".jpg", ".jpeg", ".png", ".bmp"}
+    invalid_files = []
+    
+    for file_name in os.listdir(folder):
+        file_path = os.path.join(folder, file_name)
+        if not any(file_name.lower().endswith(ext) for ext in valid_extensions):
+            print(f"Fichier invalide trouvé : {file_path}")
+            invalid_files.append(file_path)
+            continue
+        try:
+            with Image.open(file_path) as image:
+                image.verify()
+        except Exception as e:
+            print(f"Image corrompue trouvée : {file_path}, Erreur : {e}")
+            invalid_files.append(file_path)
+    
+    for file_path in invalid_files:
+        try:
+            os.remove(file_path)
+            print(f"Fichier supprimé : {file_path}")
+        except Exception as e:
+            print(f"Impossible de supprimer le fichier : {file_path}, Erreur : {e}")
+
+def resize_image(image, size=(256, 256)):
+    """Redimensionne l'image à la taille spécifiée."""
+    try:
+        if not callable(getattr(image, "resize", None)):
+            raise TypeError(f"La méthode 'resize' n'est pas callable sur l'objet : {type(image)}")
+        
+        resized_image = image.resize(size, Image.ANTIALIAS)
+        return resized_image
+    except Exception as e:
+        print(f"Erreur lors du redimensionnement : {e}")
+        raise
+
+def add_cracks_to_image(image):
+    """Ajoute des craquelures simulées (gris clair à blanc) à l'image."""
+    draw_on_image = ImageDraw.Draw(image)
+    for _ in range(random.randint(5, 15)):  # Nombre aléatoire de craquelures
+        start_x = random.randint(0, image.width)
+        start_y = random.randint(0, image.height)
+        end_x = start_x + random.randint(-50, 50)
+        end_y = start_y + random.randint(-50, 50)
+        draw_on_image.line((start_x, start_y, end_x, end_y), fill=random.randint(200, 255), width=random.randint(1, 3))
     return image
 
-def add_stains(image):
-    """Ajoute des taches aléatoires sur l'image."""
-    draw = ImageDraw.Draw(image)
-    for _ in range(random.randint(5, 10)):
-        x0 = random.randint(0, image.width)
-        y0 = random.randint(0, image.height)
-        radius = random.randint(10, 30) 
-        draw.ellipse((x0, y0, x0 + radius, y0 + radius), fill=None, outline=(128, 128, 128))
+def add_stains_to_image(image):
+    """Ajoute des taches simulées (gris clair à blanc) sur l'image."""
+    draw_on_image = ImageDraw.Draw(image)
+    for _ in range(random.randint(3, 10)):  # Nombre aléatoire de taches
+        center_x = random.randint(0, image.width)
+        center_y = random.randint(0, image.height)
+        radius = random.randint(10, 30)
+        draw_on_image.ellipse((center_x, center_y, center_x + radius, center_y + radius), fill=random.randint(200, 255))
     return image
 
-def add_scratches_and_tears(image):
-    """Ajoute des rayures et des déchirures simulées sur l'image."""
-    draw = ImageDraw.Draw(image)
-    for _ in range(random.randint(5, 15)):
-        x0 = random.randint(0, image.width)
-        y0 = random.randint(0, image.height)
-        x1 = x0 + random.randint(-50, 50)
-        y1 = y0 + random.randint(-50, 50)
-        draw.line((x0, y0, x1, y1), fill=(128, 128, 128), width=random.randint(1, 3))
-    return image
-
-def add_noise(image):
+def add_noise_to_image(image):
     """Ajoute du bruit aléatoire sur l'image."""
     np_image = np.array(image)
-    noise = np.random.normal(0, 25, np_image.shape)
-    noisy_image = np_image + noise
-    noisy_image = np.clip(noisy_image, 0, 255)
-    return Image.fromarray(noisy_image.astype('uint8'))
+    noise = np.random.normal(0, 5, np_image.shape)  # Bruit gaussien
+    noisy_image = np.clip(np_image + noise, 0, 255).astype('uint8')
+    return Image.fromarray(noisy_image)
 
-def process_and_save_images():
-    """Applique les effets de dégradation, convertit en niveaux de gris et sauvegarde les images."""
-    for filename in os.listdir(source_folder):
-        if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
-            img_path = os.path.join(source_folder, filename)
-            try:
-                print(f"Processing file: {filename}")
-                img = Image.open(img_path).convert('RGB')
-                degraded_img = add_fading(img)
-                degraded_img = add_stains(degraded_img)
-                degraded_img = add_scratches_and_tears(degraded_img)
-                degraded_img = add_noise(degraded_img)
+def apply_degradations_to_image(image):
+    """Applique une série de dégradations naturelles à l'image."""
+    image = add_cracks_to_image(image)
+    image = add_stains_to_image(image)
+    image = add_noise_to_image(image)
+    return image
 
-                synthesized_path = os.path.join(synthesized_folder, f"degraded_{filename}")
-                degraded_img.save(synthesized_path)
-                print(f"Saved synthesized image: {synthesized_path}")
+def process_images(input_folder, output_folder=None, size=(256, 256), apply_degradations=False):
+    """
+    Parcourt les images du dossier source, applique les dégradations si demandé, redimensionne, et sauvegarde.
+    Si `output_folder` est None, les images seront sauvegardées dans leur dossier d'origine.
+    """
+    for file_name in os.listdir(input_folder):
+        file_path = os.path.join(input_folder, file_name)
+        try:
+            with Image.open(file_path) as image:
+                print(f"Traitement de l'image : {file_path}")
+                # Conversion en NDG
+                if image.mode != 'L':
+                    image = image.convert('L')
+                # Redimensionnement
+                image = resize_image(image, size=size)
+                if apply_degradations:
+                    image = apply_degradations_to_image(image)
 
-                grayscale_img = degraded_img.convert('L') 
-                grayscale_path = os.path.join(old_photos_folder, f"gray_{filename}")
-                grayscale_img.save(grayscale_path)
-                print(f"Converted to grayscale and saved: {grayscale_path}")
+                output_path = os.path.join(output_folder or input_folder, file_name)
+                image.save(output_path)
+                print(f"Image traitée et sauvegardée : {output_path}")
+        except Exception as e:
+            print(f"Erreur avec le fichier {file_path} : {e}")
 
-                print(f"Image mode after grayscale conversion: {grayscale_img.mode}")
-                if grayscale_img.mode != 'L':
-                    raise ValueError(f"Failed to convert image to grayscale: {grayscale_path}")
+# Nettoyage des dossiers
+#validate_and_clean_images(input_folder)
+#validate_and_clean_images(output_folder_resized)
 
-            except Exception as e:
-                print(f"Error processing {filename}: {e}")
+# Redimensionnement des images et convertion en NDG
+process_images(output_folder_resized, size=resize_target_size, apply_degradations=False)
 
-process_and_save_images()
+# Application des dégradations aux images de `Real_Photos` et les sauvegarder dans `Synthesized_Old_Photos`
+process_images(input_folder, output_folder_with_degradations, size=resize_target_size, apply_degradations=True)

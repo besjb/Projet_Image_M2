@@ -1,3 +1,5 @@
 Dataset/
+Datatests/
+Résultats/
 
-best_model_weights.weights.h5
+vae_full_model.keras

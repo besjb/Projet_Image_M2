@@ -1,169 +1,200 @@
 import os
-import numpy as np
 import tensorflow as tf
-from tensorflow.keras.optimizers import Adam, Adamax, SGD
-from tensorflow.keras.losses import binary_crossentropy
-from tensorflow.keras.preprocessing import image_dataset_from_directory
-from tensorflow.keras.callbacks import ReduceLROnPlateau
-from PIL import Image
-import logging
-import csv
-
+from tensorflow.keras.optimizers import Adam
 from model import MultiDomainVAE
+import numpy as np
+from tqdm import tqdm
+import matplotlib.pyplot as plt
 
-def validate_and_clean_images(directory):
-    """Valide et supprime les fichiers d'image invalides."""
-    valid_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif"}
-    for root, _, files in os.walk(directory):
-        for file in files:
-            file_path = os.path.join(root, file)
-            if not any(file.lower().endswith(ext) for ext in valid_extensions):
-                print(f"Fichier invalide trouvé et supprimé : {file_path}")
-                os.remove(file_path)
-                continue
-            try:
-                with Image.open(file_path) as img:
-                    img.verify()
-            except Exception as e:
-                print(f"Image corrompue trouvée et supprimée : {file_path}, Erreur : {e}")
-                os.remove(file_path)
+DATASET_DIR = "Dataset"
+BATCH_SIZE = 16
+IMAGE_SIZE = (256, 256)
+LATENT_DIM = 256
+EPOCHS = 1
+BETA = 0.001
+MAX_BETA = 1.
+ANNEAL_EPOCH = 5
+TAUX_APPRENTISSAGE = 1e-6
 
-def custom_vae_loss(inputs, outputs, z_mean, z_log_var):
+PONDERATION_X_TRAIN = 1.
+PONDERATION_Y_TRAIN = 1.
+PONDERATION_Z_TRAIN = 1.
+
+SHUFFLE = False
+
+def preprocess_image(image):
+    """Prétraitement : normalisation et redimensionnement."""
+    image = tf.image.resize(image, IMAGE_SIZE)
+    image = tf.cast(image, tf.float32) / 255.0
+    return image
+
+def save_reconstructions(inputs, outputs, epoch):
+    for i in range(min(len(inputs), 5)): 
+        original = inputs[i].numpy().squeeze()
+        reconstructed = outputs[i].numpy().squeeze()
+        plt.imsave(f"Résultats/original_epoch{epoch}_sample{i}.png", original, cmap='gray')
+        plt.imsave(f"Résultats/reconstructed_epoch{epoch}_sample{i}.png", reconstructed, cmap='gray')
+
+def save_loss_curves(epoch_losses, output_dir="Résultats", epoch=None):
     """
-    Fonction de perte personnalisée combinant la perte de reconstruction et la divergence KL.
-    Ajuste les dimensions si nécessaire pour garantir la compatibilité.
+    Sauvegarde les courbes des pertes (reconstruction, KL, totale) dans un fichier PNG.
     """
-    outputs = tf.image.resize(outputs, tf.shape(inputs)[1:3])
+    os.makedirs(output_dir, exist_ok=True)
+    num_epochs = len(epoch_losses['reconstruction']) 
+    epochs_range = range(1, num_epochs + 1)
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs_range, epoch_losses['reconstruction'], label="Perte Reconstruction", marker='o')
+    plt.plot(epochs_range, epoch_losses['kl'], label="Perte KL", marker='o')
+    plt.plot(epochs_range, epoch_losses['total'], label="Perte Totale", marker='o')
+    plt.xticks(epochs_range)
+    plt.xlabel("Époque")
+    plt.ylabel("Valeur de la Perte")
+    plt.title("Évolution des Pertes")
+    plt.legend()
+    plt.grid()
+    file_name = f"loss_curves_epoch{epoch}.png" if epoch is not None else "loss_curves.png"
+    plt.savefig(os.path.join(output_dir, file_name))
+    plt.close()
 
-    reconstruction_loss = tf.reduce_mean(
-        binary_crossentropy(
-            tf.keras.backend.flatten(inputs),
-            tf.keras.backend.flatten(outputs)
-        )
-    )
+def align_datasets(datasets):
+    """Aligne les datasets sur la longueur minimale commune."""
+    min_length = min(len(datasets['Real_Photos']), len(datasets['Synthesized_Old_Photos']), len(datasets['Old_Photos']))
+    aligned_datasets = {
+        key: datasets[key].take(min_length)
+        for key in datasets
+    }
+    return aligned_datasets
 
-    kl_loss = -0.5 * tf.reduce_sum(
-        1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var),
-        axis=-1
-    )
+def load_datasets(base_path):
+    """Charge les datasets pour les domaines R, X, Z."""
+    datasets = {}
+    for domain in ['Real_Photos', 'Synthesized_Old_Photos', 'Old_Photos']:
+        dataset_path = os.path.join(base_path, domain)
+        dataset = tf.keras.preprocessing.image_dataset_from_directory(
+            dataset_path,
+            label_mode=None,
+            color_mode='grayscale',
+            image_size=IMAGE_SIZE,
+            batch_size=BATCH_SIZE,
+            shuffle=SHUFFLE
+        ).cache().prefetch(buffer_size=tf.data.AUTOTUNE)
+        
+        datasets[domain] = dataset.map(preprocess_image)
+    return datasets
+
+def calculate_beta(epoch, max_beta=MAX_BETA, anneal_epochs=ANNEAL_EPOCH, method='linear'):
+    """
+    MAJ de Beta selon différentes méthodes.
+    """
+    if method == 'linear':
+        if epoch < anneal_epochs:
+            return max_beta * (epoch / anneal_epochs)
+        else:
+            return max_beta
+    elif method == 'exponential':
+        if epoch < anneal_epochs:
+            return max_beta * (1 - np.exp(-epoch / anneal_epochs))
+        else:
+            return max_beta
+    elif method == 'cosine':
+        if epoch < anneal_epochs:
+            return max_beta * (1 - np.cos(np.pi * epoch / (2 * anneal_epochs)))
+        else:
+            return max_beta
+    elif method == 'sigmoid':
+        if epoch < anneal_epochs:
+            return max_beta / (1 + np.exp(-10 * (epoch / anneal_epochs - 0.5)))
+        else:
+            return max_beta
+    elif method == 'cyclic':
+        cycle_length = anneal_epochs
+        cycle_position = epoch % cycle_length
+        return max_beta * (1 - np.cos(np.pi * cycle_position / cycle_length)) / 2
+    elif method == 'stepwise':
+        step_epochs = anneal_epochs // 5  # Divisez en 5 étapes
+        return min(max_beta, max_beta * (epoch // step_epochs) / (10 // step_epochs))
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+# Fonction de perte
+def vae_loss(inputs, outputs, z_mean, z_log_var, beta=1.0):
+    """Calcule la perte de reconstruction et la divergence KL."""
+
+    # la cross entropie peut être trop sévère pour des données d'intensités continue comme les images / utiliser MSE
+    reconstruction_loss = tf.reduce_mean(tf.square(inputs - outputs)) # MSE
+    kl_loss = -0.5 * tf.reduce_sum(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=-1)
     kl_loss = tf.reduce_mean(kl_loss)
 
-    total_loss = reconstruction_loss + kl_loss
-    return reconstruction_loss, kl_loss, total_loss
+    # La perte KL et la perte totale peuvent ne pas converger efficacement -> utilisation de Beta
+    kl_loss = beta * kl_loss
+    
+    return reconstruction_loss, kl_loss, reconstruction_loss + kl_loss
 
-def train_step(model, inputs, optimizer):
+def train_step(model, inputs, optimizer, beta):
     """Effectue une étape d'entraînement."""
     with tf.GradientTape() as tape:
-        outputs = model(inputs, training=True)
-        recon_loss, kl_loss, total_loss = custom_vae_loss(
-            inputs['X'], outputs['X'],
-            model.encoder_X(inputs['X'])[0], model.encoder_X(inputs['X'])[1]
-        )
+        outputs, latent_params = model(inputs, training=True)
+        loss_X = vae_loss(inputs['X'], outputs['X'], latent_params['z_mean_X'], latent_params['z_log_var_X'], beta=beta)
+        loss_Y = vae_loss(inputs['Y'], outputs['Y'], latent_params['z_mean_Y'], latent_params['z_log_var_Y'], beta=beta)
+        loss_Z = vae_loss(inputs['Z'], outputs['Z'], latent_params['z_mean_Z'], latent_params['z_log_var_Z'], beta=beta)
+        total_loss = PONDERATION_X_TRAIN * loss_X[2] + PONDERATION_Y_TRAIN * loss_Y[2] + PONDERATION_Z_TRAIN * loss_Z[2]
+    
     gradients = tape.gradient(total_loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-    return recon_loss, kl_loss, total_loss
+    return loss_X, loss_Y, loss_Z, total_loss
 
-def load_dataset_from_directory(data_dir, batch_size=50, img_height=256, img_width=256):
-    """
-    Charge les images sous forme de dataset TensorFlow et les prétraite.
-    """
-    validate_and_clean_images(data_dir)
-    return image_dataset_from_directory(
-        data_dir,
-        label_mode=None,
-        color_mode='rgb',
-        image_size=(img_height, img_width),
-        batch_size=batch_size,
-        shuffle=True
-    )
-
-def preprocess_images(dataset):
-    """Normalise les images dans l'intervalle [0, 1]."""
-    return dataset.map(lambda x: tf.cast(x, tf.float32) / 255.0)
-
-from tensorflow.keras.callbacks import ReduceLROnPlateau
-
-def train(model, datasets, optimizer, epochs):
-    """Entraîne le modèle VAE avec les datasets donnés."""
-    logging.basicConfig(level=logging.INFO)
-    best_loss = float('inf')
-
-    metrics_file = "training_metrics.csv"
-    with open(metrics_file, mode='w', newline='', encoding='utf-8') as file:
-        writer = csv.writer(file)
-        writer.writerow(["Résumé des époques"])
-
-    # Initialize ReduceLROnPlateau
-    reduce_lr = ReduceLROnPlateau(monitor='loss', factor=0.5, patience=3, min_lr=1e-6, verbose=1)
-    reduce_lr.set_model(model)  # Set the model to the callback
-    reduce_lr.set_params({'verbose': 1, 'monitor': 'loss'})  # Set necessary params
+def train(model, datasets, epochs, optimizer, anneal_epochs=ANNEAL_EPOCH, max_beta=MAX_BETA):
+    """Boucle d'entraînement principale avec barre de progression."""
+    epoch_losses = {'reconstruction': [], 'kl': [], 'total': []}  # Suivi des pertes / époque
 
     for epoch in range(epochs):
-        epoch_total_losses = []
-        epoch_recon_losses = []
-        epoch_kl_losses = []
+        print(f"Époque {epoch + 1}/{epochs}")
+        epoch_loss = {'reconstruction': [], 'kl': [], 'total': []}
 
-        for batch, (x, r, y) in enumerate(tf.data.Dataset.zip((datasets['X'], datasets['R'], datasets['Y']))):
-            inputs = {'X': x, 'R': r, 'Y': y}
-            recon_loss, kl_loss, total_loss = train_step(model, inputs, optimizer)
+        BETA = calculate_beta(epoch, max_beta=max_beta, anneal_epochs=anneal_epochs)  # MAJ de beta
+        
+        with tqdm(total=len(datasets['Real_Photos'])) as pbar:
+            for batch_X, batch_Y, batch_Z in zip(datasets['Real_Photos'], datasets['Synthesized_Old_Photos'], datasets['Old_Photos']):
 
-            # Collecte des pertes pour les moyennes
-            epoch_total_losses.append(total_loss.numpy())
-            epoch_recon_losses.append(recon_loss.numpy())
-            epoch_kl_losses.append(kl_loss.numpy())
+                # Préparez le batch comme dictionnaire
+                inputs = {'X': batch_X, 'Y': batch_Y, 'Z': batch_Z}
+                
+                # Entraînement sur ce batch
+                loss_X, loss_Y, loss_Z, total_loss = train_step(model, inputs, optimizer, beta=BETA)
+                
+                epoch_loss['reconstruction'].append(loss_X[0].numpy() + loss_Y[0].numpy() + loss_Z[0].numpy())
+                epoch_loss['kl'].append(loss_X[1].numpy() + loss_Y[1].numpy() + loss_Z[1].numpy())
+                epoch_loss['total'].append(total_loss.numpy())
+                
+                pbar.set_postfix({'Perte Moyenne': f"{np.mean(epoch_loss['total']):.6f}"})
+                pbar.update(1)
+        
 
-            logging.info(f"Époque : {epoch + 1}, Lot : {batch + 1}, "
-                         f"Perte totale : {total_loss.numpy():.6f}, "
-                         f"Perte de reconstruction : {recon_loss.numpy():.6f}, "
-                         f"Perte KL : {kl_loss.numpy():.6f}")
+        # Calcul des moyennes pour cette époque
+        epoch_losses['reconstruction'].append(np.mean(epoch_loss['reconstruction']))
+        epoch_losses['kl'].append(np.mean(epoch_loss['kl']))
+        epoch_losses['total'].append(np.mean(epoch_loss['total']))
 
-        # Calcul des moyennes
-        avg_total_loss = np.mean(epoch_total_losses)
-        avg_recon_loss = np.mean(epoch_recon_losses)
-        avg_kl_loss = np.mean(epoch_kl_losses)
+        # Métriques
+        print(f"Perte Moyenne de l'Époque {epoch + 1}: {np.mean(epoch_loss['total']):.6f}")
 
-        # Log the current learning rate
-        current_lr = optimizer.learning_rate.numpy()
-        logging.info(f"Époque : {epoch + 1}, Learning Rate : {current_lr:.6e}")
+        save_reconstructions(
+            inputs=inputs['X'],  # Entrées du domaine X
+            outputs=model(inputs, training=False)['X'],  # Reconstructions pour le domaine X
+            epoch=epoch + 1
+        )
+        save_loss_curves(epoch_losses, epoch=epoch + 1)
 
-        with open(metrics_file, mode='a', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            formatted_line = (
-                f"Époque : {epoch + 1} / "
-                f"Perte totale moyenne : {avg_total_loss:.6f} / "
-                f"Perte de reconstruction moyenne : {avg_recon_loss:.6f} / "
-                f"Perte KL moyenne : {avg_kl_loss:.6f} / "
-                f"Learning Rate : {current_lr:.6e}"
-            )
-            writer.writerow([formatted_line])
-
-        logging.info(f"Époque : {epoch + 1}, "
-                     f"Perte totale moyenne : {avg_total_loss:.6f}, "
-                     f"Perte de reconstruction moyenne : {avg_recon_loss:.6f}, "
-                     f"Perte KL moyenne : {avg_kl_loss:.6f}")
-
-        reduce_lr.on_epoch_end(epoch, logs={'loss': avg_total_loss})
-
-        if avg_total_loss < best_loss:
-            best_loss = avg_total_loss
-            model.save_weights('best_model_weights.weights.h5')
-            logging.info(f"Nouvelle meilleure perte {best_loss:.6f}. Poids du modèle sauvegardés.")
-
-    reduce_lr.on_train_end()
-
+    print("Entraînement terminé.")
 
 if __name__ == "__main__":
-    model = MultiDomainVAE(latent_dim=256)
-    optimizer = Adam()
-    model.compile(optimizer=optimizer)
-
-    dataset_dir = 'Dataset'
-
-    datasets = {
-        'X': preprocess_images(load_dataset_from_directory(f'{dataset_dir}/Synthesized_Old_Photos')),
-        'R': preprocess_images(load_dataset_from_directory(f'{dataset_dir}/Real_Photos')),
-        'Y': preprocess_images(load_dataset_from_directory(f'{dataset_dir}/Old_Photos'))
-    }
-
-    train(model, datasets, optimizer, epochs=30)
-    print("Entraînement terminé. Métriques enregistrées dans training_metrics.csv.")
+    datasets = load_datasets(DATASET_DIR)
+    datasets = align_datasets(datasets)
+    
+    model = MultiDomainVAE(latent_dim=LATENT_DIM, input_shape=(256, 256, 1))
+    optimizer = Adam(learning_rate=TAUX_APPRENTISSAGE)
+    
+    train(model, datasets, epochs=EPOCHS, optimizer=optimizer)
+    
+    model.save("vae_full_model.keras")
+    print("Poids finaux sauvegardés.")
