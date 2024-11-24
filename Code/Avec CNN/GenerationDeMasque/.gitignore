@@ -3,3 +3,4 @@ Dataset_preprocessed/
 Assets/
 Assets_masks/
 vae_weights_256x256.weights.h5
+__pycache__
