@@ -1,5 +1,1 @@
-Dataset/
-Datatests/
-Résultats/
-
-vae_full_model.keras
+Modèles/VAE_MultDomaines_AvecUnet/vae_full_model.keras

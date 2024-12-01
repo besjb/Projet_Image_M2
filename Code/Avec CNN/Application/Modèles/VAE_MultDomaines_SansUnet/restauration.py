@@ -6,6 +6,9 @@ from model import MultiDomainVAE
 import numpy as np
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from skimage.metrics import structural_similarity as ssim
+from tkinter import Tk, filedialog
+from PIL import Image, ImageTk
+
 
 INPUT_FOLDER = "Assets"
 OUTPUT_FOLDER = "Restaurés"

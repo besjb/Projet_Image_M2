@@ -6,17 +6,14 @@ from model import MultiDomainVAE
 import numpy as np
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from skimage.metrics import structural_similarity as ssim
+import argparse
 
-INPUT_FOLDER = "Assets"
-OUTPUT_FOLDER = "Restaurés"
 IMAGE_SIZE = (256, 256)
 
 INVERT = False
 PONDERATION_X = 0.      # Domaines des images propres (ça doit donner des images lisses)
 PONDERATION_Y = 0.2     # Domaine des images synthétiques (débruitage)
 PONDERATION_Z = 0.8     # Domaine des images anciennes (réparation des dégradations)
-
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 def preprocess_image(image_path):
     """Charge et prétraite une image pour la passer dans le modèle."""
@@ -43,69 +40,51 @@ def create_placeholder(batch_size=1):
     """Crée un tenseur placeholder vide pour les domaines manquants."""
     return np.zeros((batch_size, IMAGE_SIZE[0], IMAGE_SIZE[1], 1), dtype=np.float32)
 
-def process_images(model, input_folder, output_folder):
-    """Applique le modèle sur les images d'un dossier et sauvegarde les résultats."""
-    psnr_scores = []
-    ssim_scores = []
+def process_image(model, input_path, output_path):
+    """Applique le modèle sur une seule image et sauvegarde le résultat."""
+    print(f"Traitement de l'image : {input_path}")
+    preprocessed_image = preprocess_image(input_path)
 
-    for file_name in os.listdir(input_folder):
-        input_path = os.path.join(input_folder, file_name)
-        output_path = os.path.join(output_folder, file_name)
+    if preprocessed_image is None:
+        print(f"Impossible de prétraiter l'image : {input_path}")
+        return
 
-        if not file_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
-            print(f"Fichier ignoré : {input_path}")
-            continue
+    inputs = {
+        'X': preprocessed_image,                # Entrée réelle pour X
+        'Y': create_placeholder(batch_size=1),  # Placeholder pour Y
+        'Z': create_placeholder(batch_size=1)   # Placeholder pour Z
+    }
 
-        print(f"Traitement de l'image : {input_path}")
-        preprocessed_image = preprocess_image(input_path)
+    # Reconstruit les images avec le modèle
+    outputs = model(inputs, training=False)
 
-        if preprocessed_image is None:
-            print(f"Impossible de prétraiter l'image : {input_path}")
-            continue
+    reconstructed_X = outputs['X'].numpy()
+    reconstructed_Y = outputs['Y'].numpy()
+    reconstructed_Z = outputs['Z'].numpy()
 
-        inputs = {
-            'X': preprocessed_image,                # Entrée réelle pour X
-            'Y': create_placeholder(batch_size=1),  # Placeholder pour Y
-            'Z': create_placeholder(batch_size=1)   # Placeholder pour Z
-        }
+    reconstructed_image = PONDERATION_Y * reconstructed_Y + PONDERATION_Z * reconstructed_Z
 
-        # Reconstruit les images avec le modèle
-        outputs = model(inputs, training=False)
+    if INVERT:
+        reconstructed_image = 1. - reconstructed_image
 
-        reconstructed_X = outputs['X'].numpy()
-        reconstructed_Y = outputs['Y'].numpy()
-        reconstructed_Z = outputs['Z'].numpy()
+    save_image(reconstructed_image[0], output_path)
 
-        reconstructed_image = PONDERATION_Y * reconstructed_Y + PONDERATION_Z * reconstructed_Z
+    # Calcul des métriques PSNR et SSIM
+    original_image = np.squeeze(preprocessed_image)         # Image originale
+    restored_image = np.squeeze(reconstructed_image[0])     # Image restaurée
 
-        if(INVERT == False) :
-            reconstructed_image = reconstructed_image
-        else:
-            reconstructed_image = 1. - reconstructed_image
+    psnr_value = psnr(original_image, restored_image, data_range=1.0)
+    ssim_value = ssim(original_image, restored_image, data_range=1.0)
 
-        save_image(reconstructed_image[0], output_path)
-
-        # Calcul des métriques PSNR et SSIM
-        original_image = np.squeeze(preprocessed_image)         # Image originale
-        restored_image = np.squeeze(reconstructed_image[0])     # Image restaurée
-
-        psnr_value = psnr(original_image, restored_image, data_range=1.0)
-        ssim_value = ssim(original_image, restored_image, data_range=1.0)
-
-        psnr_scores.append(psnr_value)
-        ssim_scores.append(ssim_value)
-
-        print(f"PSNR: {psnr_value:.2f}, SSIM: {ssim_value:.4f} pour l'image : {file_name}")
-
-    # Moyenne des métriques
-    if psnr_scores and ssim_scores:
-        avg_psnr = np.mean(psnr_scores)
-        avg_ssim = np.mean(ssim_scores)
-        print(f"PSNR moyen : {avg_psnr:.2f} dB")
-        print(f"SSIM moyen : {avg_ssim:.4f}")
+    print(f"PSNR: {psnr_value:.2f}, SSIM: {ssim_value:.4f}")
 
 if __name__ == "__main__":
-    model = load_model("vae_full_model.keras", custom_objects={"MultiDomainVAE": MultiDomainVAE})
-    process_images(model, INPUT_FOLDER, OUTPUT_FOLDER)
-    print(f"Traitement terminé. Images restaurées dans {OUTPUT_FOLDER}.")
+    parser = argparse.ArgumentParser(description="Restauration d'une image ancienne avec un modèle IA")
+    parser.add_argument("--model", type=str, required=True, help="Chemin du fichier de modèle")
+    parser.add_argument("--input", type=str, required=True, help="Chemin de l'image à restaurer")
+    parser.add_argument("--output", type=str, required=True, help="Chemin de l'image restaurée")
+    args = parser.parse_args()
 
+    model = load_model(args.model, custom_objects={"MultiDomainVAE": MultiDomainVAE})
+    process_image(model, args.input, args.output)
+    print("Traitement terminé.")
