@@ -7,14 +7,15 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 DATASET_DIR = "Dataset"
-BATCH_SIZE = 16
+BATCH_SIZE = 32
 IMAGE_SIZE = (256, 256)
 LATENT_DIM = 256
-EPOCHS = 1
+EPOCHS = 2
 BETA = 0.001
 MAX_BETA = 1.
 ANNEAL_EPOCH = 5
 TAUX_APPRENTISSAGE = 1e-6
+ALPHA_MAX = 10.
 
 PONDERATION_X_TRAIN = 1.
 PONDERATION_Y_TRAIN = 1.
@@ -121,7 +122,11 @@ def vae_loss(inputs, outputs, z_mean, z_log_var, beta=1.0):
     """Calcule la perte de reconstruction et la divergence KL."""
 
     # la cross entropie peut être trop sévère pour des données d'intensités continue comme les images / utiliser MSE
-    reconstruction_loss = tf.reduce_mean(tf.square(inputs - outputs)) # MSE
+    #reconstruction_loss = tf.reduce_mean(tf.square(inputs - outputs)) # MSE
+    reconstruction_loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(inputs, outputs)) # ENtropie croisée binaire
+    alpha = tf.minimum(ALPHA_MAX, 1.0 / (beta + 1e-6))
+    reconstruction_loss = alpha * reconstruction_loss
+    
     kl_loss = -0.5 * tf.reduce_sum(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=-1)
     kl_loss = tf.reduce_mean(kl_loss)
 
@@ -134,10 +139,27 @@ def train_step(model, inputs, optimizer, beta):
     """Effectue une étape d'entraînement."""
     with tf.GradientTape() as tape:
         outputs, latent_params = model(inputs, training=True)
-        loss_X = vae_loss(inputs['X'], outputs['X'], latent_params['z_mean_X'], latent_params['z_log_var_X'], beta=beta)
-        loss_Y = vae_loss(inputs['Y'], outputs['Y'], latent_params['z_mean_Y'], latent_params['z_log_var_Y'], beta=beta)
-        loss_Z = vae_loss(inputs['Z'], outputs['Z'], latent_params['z_mean_Z'], latent_params['z_log_var_Z'], beta=beta)
-        total_loss = PONDERATION_X_TRAIN * loss_X[2] + PONDERATION_Y_TRAIN * loss_Y[2] + PONDERATION_Z_TRAIN * loss_Z[2]
+
+        # Pertes de reconstruction et KL
+        loss_X = vae_loss(inputs['X'], outputs['X'], latent_params[0], latent_params[1], beta=beta)
+        loss_Y = vae_loss(inputs['Y'], outputs['Y'], latent_params[2], latent_params[3], beta=beta)
+        loss_Z = vae_loss(inputs['Z'], outputs['Z'], latent_params[4], latent_params[5], beta=beta)
+
+        # Vérifiez les formes avant le calcul des pertes de consistance
+        if latent_params[4].shape[0] != outputs['z_Z_mapped'].shape[0]:
+            min_batch_size = min(latent_params[4].shape[0], outputs['z_Z_mapped'].shape[0])
+            latent_params[4] = latent_params[4][:min_batch_size]
+            outputs['z_Z_mapped'] = outputs['z_Z_mapped'][:min_batch_size]
+
+        # Perte de consistance inter-domaines
+        consistency_loss_Y = tf.reduce_mean(tf.square(latent_params[2] - outputs['z_Y_mapped']))
+        consistency_loss_Z = tf.reduce_mean(tf.square(latent_params[4] - outputs['z_Z_mapped']))
+
+        # Total des pertes
+        total_loss = (
+            loss_X[2] + loss_Y[2] + loss_Z[2] +
+            consistency_loss_Y + consistency_loss_Z
+        )
     
     gradients = tape.gradient(total_loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))

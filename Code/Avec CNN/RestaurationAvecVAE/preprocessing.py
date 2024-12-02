@@ -47,6 +47,28 @@ def resize_image(image, size=(256, 256)):
         print(f"Erreur lors du redimensionnement : {e}")
         raise
 
+def add_mask_to_image(image, mask_count=3, mask_size_range=(20, 50)):
+    """
+    Ajoute des masques (zones noires) aléatoires sur l'image.
+    Args:
+        image (PIL.Image): Image sur laquelle appliquer les masques.
+        mask_count (int): Nombre de masques aléatoires à ajouter.
+        mask_size_range (tuple): Intervalle pour la taille des masques (min, max).
+    Returns:
+        PIL.Image: Image avec masques appliqués.
+    """
+    draw_on_image = ImageDraw.Draw(image)
+    for _ in range(mask_count):
+        # Détermine une position et une taille aléatoire pour le masque
+        x0 = random.randint(0, image.width - mask_size_range[1])
+        y0 = random.randint(0, image.height - mask_size_range[1])
+        size = random.randint(*mask_size_range)
+        x1 = x0 + size
+        y1 = y0 + size
+        # Dessine un rectangle noir pour simuler une zone masquée
+        draw_on_image.rectangle([x0, y0, x1, y1], fill=0)  # Noir
+    return image
+
 def add_cracks_to_image(image):
     """Ajoute des craquelures simulées (gris clair à blanc) à l'image."""
     draw_on_image = ImageDraw.Draw(image)
@@ -71,13 +93,14 @@ def add_stains_to_image(image):
 def add_noise_to_image(image):
     """Ajoute du bruit aléatoire sur l'image."""
     np_image = np.array(image)
-    noise = np.random.normal(0, 5, np_image.shape)  # Bruit gaussien
+    noise = np.random.normal(0, 8, np_image.shape)  # Bruit gaussien
     noisy_image = np.clip(np_image + noise, 0, 255).astype('uint8')
     return Image.fromarray(noisy_image)
 
 def apply_degradations_to_image(image):
     """Applique une série de dégradations naturelles à l'image."""
     image = add_cracks_to_image(image)
+    image = add_mask_to_image(image)
     image = add_stains_to_image(image)
     image = add_noise_to_image(image)
     return image

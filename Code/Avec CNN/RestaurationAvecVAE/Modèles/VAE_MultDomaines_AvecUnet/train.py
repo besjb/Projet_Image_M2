@@ -16,6 +16,7 @@ BETA = 0.001
 MAX_BETA = 1.
 ANNEAL_EPOCH = 5
 TAUX_APPRENTISSAGE = 1e-6
+ALPHA_MAX = 10.
 
 PONDERATION_X_TRAIN = 1.
 PONDERATION_Y_TRAIN = 1.
@@ -122,7 +123,11 @@ def vae_loss(inputs, outputs, z_mean, z_log_var, beta=1.0):
     """Calcule la perte de reconstruction et la divergence KL."""
 
     # la cross entropie peut être trop sévère pour des données d'intensités continue comme les images / utiliser MSE
-    reconstruction_loss = tf.reduce_mean(tf.square(inputs - outputs)) # MSE
+    #reconstruction_loss = tf.reduce_mean(tf.square(inputs - outputs)) # MSE
+    reconstruction_loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(inputs, outputs)) # ENtropie croisée binaire
+    alpha = tf.minimum(ALPHA_MAX, 1.0 / (beta + 1e-6))
+    reconstruction_loss = alpha * reconstruction_loss
+    
     kl_loss = -0.5 * tf.reduce_sum(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=-1)
     kl_loss = tf.reduce_mean(kl_loss)
 
@@ -130,7 +135,7 @@ def vae_loss(inputs, outputs, z_mean, z_log_var, beta=1.0):
     kl_loss = beta * kl_loss
     
     return reconstruction_loss, kl_loss, reconstruction_loss + kl_loss
-
+    
 def train_step(model, inputs, optimizer, beta):
     """Effectue une étape d'entraînement."""
     with tf.GradientTape() as tape:

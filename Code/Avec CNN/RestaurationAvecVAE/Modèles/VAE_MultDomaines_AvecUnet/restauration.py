@@ -10,9 +10,8 @@ from skimage.metrics import structural_similarity as ssim
 INPUT_FOLDER = "Assets"
 OUTPUT_FOLDER = "Restaurés"
 IMAGE_SIZE = (256, 256)
-LATENT_DIM = 256
 
-INVERT = True
+INVERT = False
 PONDERATION_X = 0.      # Domaines des images propres (ça doit donner des images lisses)
 PONDERATION_Y = 0.2     # Domaine des images synthétiques (débruitage)
 PONDERATION_Z = 0.8     # Domaine des images anciennes (réparation des dégradations)
