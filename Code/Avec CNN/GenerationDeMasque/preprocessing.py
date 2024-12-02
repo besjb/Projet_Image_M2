@@ -23,69 +23,69 @@ def resize_image(image, target_size=(256, 256)):
 # import random
 # from PIL import Image, ImageDraw
 
-# def AjoutLignesAvecMasque(image, num_lines=5, max_deviation=5):
-#     """Ajoute des lignes aléatoires bruitées continues à l'image et génère un masque correspondant."""
-#     draw = ImageDraw.Draw(image)
-#     width, height = image.size
-#     mask = Image.new("L", (width, height), 0)  # Masque binaire initialisé à 0
-#     mask_draw = ImageDraw.Draw(mask)
+def AjoutLignesAvecMasque(image, num_lines=5, max_deviation=5):
+    """Ajoute des lignes aléatoires bruitées continues à l'image et génère un masque correspondant."""
+    draw = ImageDraw.Draw(image)
+    width, height = image.size
+    mask = Image.new("L", (width, height), 0)  # Masque binaire initialisé à 0
+    mask_draw = ImageDraw.Draw(mask)
 
-#     for _ in range(num_lines):
-#         line_color = 255
-#         line_thickness = random.randint(1, 15)
-#         orientation = random.choice(["horizontal", "vertical", "diagonal"])
-#         segments = random.randint(10, 30)  # Diviser la ligne en plusieurs segments
+    for _ in range(num_lines):
+        line_color = 255
+        line_thickness = random.randint(1, 15)
+        orientation = random.choice(["horizontal", "vertical", "diagonal"])
+        segments = random.randint(10, 30)  # Diviser la ligne en plusieurs segments
 
-#         # Définir le point de départ initial
-#         start_x = random.randint(0, width - 1)
-#         start_y = random.randint(0, height - 1)
+        # Définir le point de départ initial
+        start_x = random.randint(0, width - 1)
+        start_y = random.randint(0, height - 1)
 
-#         current_x, current_y = start_x, start_y  # Les coordonnées actuelles
+        current_x, current_y = start_x, start_y  # Les coordonnées actuelles
 
-#         for _ in range(segments):
-#             if orientation == "horizontal":
-#                 # Déviation horizontale uniquement (x change, y constant avec bruit)
-#                 new_x = current_x + random.randint(5, 20)  # Longueur de segment
-#                 new_y = current_y + random.randint(-max_deviation, max_deviation)  # Bruit vertical
-#                 if new_x >= width: 
-#                     new_x = width - 1
-#                 draw.line([(current_x, current_y), (new_x, new_y)], fill=line_color, width=line_thickness)
-#                 mask_draw.line([(current_x, current_y), (new_x, new_y)], fill=255, width=line_thickness)
-#                 current_x, current_y = new_x, new_y
-#                 if current_x >= width - 1:
-#                     break 
+        for _ in range(segments):
+            if orientation == "horizontal":
+                # Déviation horizontale uniquement (x change, y constant avec bruit)
+                new_x = current_x + random.randint(5, 20)  # Longueur de segment
+                new_y = current_y + random.randint(-max_deviation, max_deviation)  # Bruit vertical
+                if new_x >= width: 
+                    new_x = width - 1
+                draw.line([(current_x, current_y), (new_x, new_y)], fill=line_color, width=line_thickness)
+                mask_draw.line([(current_x, current_y), (new_x, new_y)], fill=255, width=line_thickness)
+                current_x, current_y = new_x, new_y
+                if current_x >= width - 1:
+                    break 
 
-#             elif orientation == "vertical":
-#                 # Déviation verticale uniquement (y change, x constant avec bruit)
-#                 new_y = current_y + random.randint(5, 20)  # Longueur de segment
-#                 new_x = current_x + random.randint(-max_deviation, max_deviation)  # Bruit horizontal
-#                 if new_y >= height: 
-#                     new_y = height - 1
-#                 draw.line([(current_x, current_y), (new_x, new_y)], fill=line_color, width=line_thickness)
-#                 mask_draw.line([(current_x, current_y), (new_x, new_y)], fill=255, width=line_thickness)
-#                 current_x, current_y = new_x, new_y
-#                 if current_y >= height - 1:
-#                     break 
+            elif orientation == "vertical":
+                # Déviation verticale uniquement (y change, x constant avec bruit)
+                new_y = current_y + random.randint(5, 20)  # Longueur de segment
+                new_x = current_x + random.randint(-max_deviation, max_deviation)  # Bruit horizontal
+                if new_y >= height: 
+                    new_y = height - 1
+                draw.line([(current_x, current_y), (new_x, new_y)], fill=line_color, width=line_thickness)
+                mask_draw.line([(current_x, current_y), (new_x, new_y)], fill=255, width=line_thickness)
+                current_x, current_y = new_x, new_y
+                if current_y >= height - 1:
+                    break 
 
-#             elif orientation == "diagonal":
-#                 # Déviation dans les deux directions
-#                 new_x = current_x + random.randint(-20, 20)
-#                 new_y = current_y + random.randint(-20, 20)
-#                 if new_x < 0:
-#                     new_x = 0
-#                 if new_x >= width:
-#                     new_x = width - 1
-#                 if new_y < 0:
-#                     new_y = 0
-#                 if new_y >= height:
-#                     new_y = height - 1
-#                 draw.line([(current_x, current_y), (new_x, new_y)], fill=line_color, width=line_thickness)
-#                 mask_draw.line([(current_x, current_y), (new_x, new_y)], fill=255, width=line_thickness)
-#                 current_x, current_y = new_x, new_y
-#                 if current_x >= width - 1 or current_y >= height - 1:
-#                     break 
+            elif orientation == "diagonal":
+                # Déviation dans les deux directions
+                new_x = current_x + random.randint(-20, 20)
+                new_y = current_y + random.randint(-20, 20)
+                if new_x < 0:
+                    new_x = 0
+                if new_x >= width:
+                    new_x = width - 1
+                if new_y < 0:
+                    new_y = 0
+                if new_y >= height:
+                    new_y = height - 1
+                draw.line([(current_x, current_y), (new_x, new_y)], fill=line_color, width=line_thickness)
+                mask_draw.line([(current_x, current_y), (new_x, new_y)], fill=255, width=line_thickness)
+                current_x, current_y = new_x, new_y
+                if current_x >= width - 1 or current_y >= height - 1:
+                    break 
 
-#     return image, mask
+    return image, mask
 
 
 # Technique 2 (ligne "random" mais on fait une translation a la fin du segment)
@@ -142,34 +142,34 @@ def resize_image(image, target_size=(256, 256)):
 
 # technique 1 (ligne lineaire)
 
-def AjoutLignesAvecMasque(image, num_lines=5):
-    """Ajoute des lignes aléatoires à l'image et génère un masque correspondant."""
-    draw = ImageDraw.Draw(image)
-    width, height = image.size
-    mask = Image.new("L", (width, height), 0)  # Masque binaire initialisé à 0
-    mask_draw = ImageDraw.Draw(mask)
+# def AjoutLignesAvecMasque(image, num_lines=5):
+#     """Ajoute des lignes aléatoires à l'image et génère un masque correspondant."""
+#     draw = ImageDraw.Draw(image)
+#     width, height = image.size
+#     mask = Image.new("L", (width, height), 0)  # Masque binaire initialisé à 0
+#     mask_draw = ImageDraw.Draw(mask)
 
-    for _ in range(num_lines):
-        line_color = 255
-        line_thickness = random.randint(1, 15)
-        orientation = random.choice(["horizontal", "vertical", "diagonal"])
+#     for _ in range(num_lines):
+#         line_color = 255
+#         line_thickness = random.randint(1, 15)
+#         orientation = random.choice(["horizontal", "vertical", "diagonal"])
 
-        if orientation == "horizontal":
-            y = random.randint(0, height - 1)
-            draw.line([(0, y), (width, y)], fill=line_color, width=line_thickness)
-            mask_draw.line([(0, y), (width, y)], fill=255, width=line_thickness)
-        elif orientation == "vertical":
-            x = random.randint(0, width - 1)
-            draw.line([(x, 0), (x, height)], fill=line_color, width=line_thickness)
-            mask_draw.line([(x, 0), (x, height)], fill=255, width=line_thickness)
-        elif orientation == "diagonal":
-            start_x = random.randint(0, width)
-            start_y = random.randint(0, height)
-            end_x = random.randint(0, width)
-            end_y = random.randint(0, height)
-            draw.line([(start_x, start_y), (end_x, end_y)], fill=line_color, width=line_thickness)
-            mask_draw.line([(start_x, start_y), (end_x, end_y)], fill=255, width=line_thickness)
-    return image, mask
+#         if orientation == "horizontal":
+#             y = random.randint(0, height - 1)
+#             draw.line([(0, y), (width, y)], fill=line_color, width=line_thickness)
+#             mask_draw.line([(0, y), (width, y)], fill=255, width=line_thickness)
+#         elif orientation == "vertical":
+#             x = random.randint(0, width - 1)
+#             draw.line([(x, 0), (x, height)], fill=line_color, width=line_thickness)
+#             mask_draw.line([(x, 0), (x, height)], fill=255, width=line_thickness)
+#         elif orientation == "diagonal":
+#             start_x = random.randint(0, width)
+#             start_y = random.randint(0, height)
+#             end_x = random.randint(0, width)
+#             end_y = random.randint(0, height)
+#             draw.line([(start_x, start_y), (end_x, end_y)], fill=line_color, width=line_thickness)
+#             mask_draw.line([(start_x, start_y), (end_x, end_y)], fill=255, width=line_thickness)
+#     return image, mask
 
 def preprocess_image_for_degradation(image, target_size=(256, 256)):
     """Ajoute des lignes aléatoires à une image et génère un masque."""
