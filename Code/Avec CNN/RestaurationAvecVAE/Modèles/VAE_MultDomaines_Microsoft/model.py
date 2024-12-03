@@ -151,14 +151,3 @@ class MultiDomainVAE(Model):
                 'Y': reconstructed_Y,
                 'Z': reconstructed_Z
             }
-
-    def compute_loss(self, inputs, outputs, z_means, z_log_vars):
-        """Calcul des pertes de reconstruction et divergence KL."""
-        reconstruction_loss = tf.reduce_mean(
-            tf.keras.losses.binary_crossentropy(inputs, outputs)
-        )
-        reconstruction_loss *= self.input_shape_model[0] * self.input_shape_model[1]
-        kl_loss = -0.5 * tf.reduce_mean(
-            1 + z_log_vars - tf.square(z_means) - tf.exp(z_log_vars)
-        )
-        return reconstruction_loss + kl_loss

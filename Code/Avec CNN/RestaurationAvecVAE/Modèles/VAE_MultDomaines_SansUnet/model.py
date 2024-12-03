@@ -23,6 +23,9 @@ class MultiDomainVAE(Model):
         x = Conv2D(32, (3, 3), activation='relu', strides=2, padding='same', name=f"{name_prefix}_conv1")(inputs)
         x = Conv2D(64, (3, 3), activation='relu', strides=2, padding='same', name=f"{name_prefix}_conv2")(x)
         x = Conv2D(128, (3, 3), activation='relu', strides=2, padding='same', name=f"{name_prefix}_conv3")(x)
+        x = Conv2D(256, (3, 3), activation='relu', strides=2, padding='same', name=f"{name_prefix}_conv4")(x)
+        x = Conv2D(512, (3, 3), activation='relu', strides=2, padding='same', name=f"{name_prefix}_conv5")(x)
+        
         x = Flatten(name=f"{name_prefix}_flatten")(x)
         z_mean = Dense(self.latent_dim, name=f"{name_prefix}_z_mean")(x)
         z_log_var = Dense(self.latent_dim, name=f"{name_prefix}_z_log_var")(x)
@@ -32,8 +35,11 @@ class MultiDomainVAE(Model):
     def build_decoder(self, input_shape):
         """Construction d'un décodeur pour un domaine donné."""
         latent_inputs = Input(shape=(self.latent_dim,))
-        x = Dense(32 * 32 * 128, activation='relu')(latent_inputs)
-        x = Reshape((32, 32, 128))(x)
+        x = Dense(8 * 8 * 512, activation='relu')(latent_inputs)
+        x = Reshape((8, 8, 512))(x)
+
+        x = Conv2DTranspose(512, (3, 3), activation='relu', strides=2, padding='same')(x)        
+        x = Conv2DTranspose(256, (3, 3), activation='relu', strides=2, padding='same')(x)
         x = Conv2DTranspose(128, (3, 3), activation='relu', strides=2, padding='same')(x)
         x = Conv2DTranspose(64, (3, 3), activation='relu', strides=2, padding='same')(x)
         x = Conv2DTranspose(32, (3, 3), activation='relu', strides=2, padding='same')(x)
