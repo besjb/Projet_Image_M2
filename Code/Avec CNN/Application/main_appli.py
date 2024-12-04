@@ -16,6 +16,8 @@ from skimage.metrics import structural_similarity as ssim
 from tkinter import Tk, filedialog
 from PIL import Image, ImageTk
 
+from brisque import BRISQUE
+
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -105,12 +107,64 @@ pond_Y_label = None
 pond_Z_label = None
 
 domains_label = None
+invert_checkbox = None
+invert_colors = False
 
-model_directory = {
-    "Modèle 1": "/home/evan/Téléchargements/Projet_Image_M2-main/Code/Avec CNN/Application (copie)/Modèles/VAE_MultDomaines_SansUnet",
-    "Modèle 2": "/home/evan/Téléchargements/Projet_Image_M2-main/Code/Avec CNN/Application (copie)/Modèles/VAE_MultDomaines_AvecUnet",
-    "Modèle 3": "/home/evan/Téléchargements/Projet_Image_M2-main/Code/Avec CNN/Application (copie)/Modèles/VAE_MultDomaines_Microsoft"
-}
+current_directory = os.path.dirname(os.path.abspath(__file__))
+base_model_directory = os.path.join(current_directory, "Modèles")
+
+def save_processed_image():
+    """
+    Ouvre une boîte de dialogue pour sauvegarder l'image traitée.
+    """
+    global processed_image
+    if processed_image is None:
+        messagebox.showerror("Erreur", "Aucune image à sauvegarder. Veuillez d'abord traiter une image.")
+        return
+
+    file_path = filedialog.asksaveasfilename(
+        defaultextension=".png",
+        filetypes=[("PNG files", "*.png"), ("JPEG files", "*.jpg"), ("All files", "*.*")]
+    )
+    if file_path:
+        try:
+            processed_image.save(file_path)
+            messagebox.showinfo("Succès", f"L'image a été sauvegardée avec succès à : {file_path}")
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Erreur lors de la sauvegarde de l'image : {e}")
+
+def calculate_brisque(image):
+    """
+    Calcule le score BRISQUE pour une image donnée.
+    Si l'image est en niveaux de gris, elle est convertie en RVB.
+    """
+    try:
+        if len(image.shape) == 2 or image.shape[-1] == 1:  # Image en niveaux de gris
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)  # Convertir en RGB
+        brisque_score = BRISQUE().score(image)
+        return brisque_score
+    except Exception as e:
+        print(f"Erreur lors du calcul du BRISQUE : {e}")
+        return None
+
+def get_model_directories(base_path):
+    """
+    Parcourt le répertoire racine et retourne un dictionnaire
+    contenant les noms des modèles (Modèle 1, Modèle 2, etc.)
+    et leurs chemins complets.
+    """
+    model_dirs = {}
+    if os.path.exists(base_path):
+        subdirs = [entry for entry in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, entry))]
+        for idx, subdir in enumerate(sorted(subdirs), start=1):
+            full_path = os.path.join(base_path, subdir)
+            model_name = f"Modèle {idx}"
+            model_dirs[model_name] = full_path
+    return model_dirs
+
+model_directory = get_model_directories(base_model_directory)
+print("Modèles détectés :", model_directory)
+
 
 selected_model_file = None
 model_file_selector = None
@@ -158,6 +212,13 @@ def update_brush_size(value):
     global brush_size
     brush_size = int(float(value))
     brush_size_value.configure(text=f"{brush_size}")
+
+def toggle_invert_colors():
+    """
+    Active ou désactive l'inversion des couleurs.
+    """
+    global invert_colors
+    invert_colors = not invert_colors
 
 def update_inpainting_radius(value):
     global inpainting_radius
@@ -232,11 +293,12 @@ def apply_restoration():
 
         psnr_value = calculate_psnr(damaged_img, expanded_image)
         ssim_value = calculate_ssim(damaged_img, expanded_image)
+        brisque_value = calculate_brisque(expanded_image)
 
         processed_image = Image.fromarray(expanded_image)
         display_image(processed_image, processed_label)
         metrics_label.configure(
-            text=f"PSNR: {psnr_value:.2f} dB | SSIM: {ssim_value:.3f}"
+            text=f"PSNR: {psnr_value:.2f} dB | SSIM: {ssim_value:.3f} | BRISQUE: {brisque_value:.2f}"
         )
 
     elif selected_method == "Hybride":
@@ -257,11 +319,12 @@ def apply_restoration():
 
         psnr_value = calculate_psnr(damaged_img, expanded_image)
         ssim_value = calculate_ssim(damaged_img, expanded_image)
+        brisque_value = calculate_brisque(expanded_image)
 
         processed_image = Image.fromarray(expanded_image)
         display_image(processed_image, processed_label)
         metrics_label.configure(
-            text=f"PSNR: {psnr_value:.2f} dB | SSIM: {ssim_value:.3f}"
+            text=f"PSNR: {psnr_value:.2f} dB | SSIM: {ssim_value:.3f} | BRISQUE: {brisque_value:.2f}"
         )
 
     elif selected_method == "IA":
@@ -291,12 +354,21 @@ def apply_restoration():
             reconstructed_Z = outputs.get('Z', np.zeros_like(preprocessed_image)).numpy()
 
             reconstructed_image = pond_X * reconstructed_X + pond_Y * reconstructed_Y + pond_Z * reconstructed_Z
-            if INVERT:
+            if invert_colors:
                 reconstructed_image = 1.0 - reconstructed_image
 
             save_image(reconstructed_image[0], "/tmp/restored_image.png")
             processed_image = Image.open("/tmp/restored_image.png")
+
+
+            psnr_value = calculate_psnr(np.array(original_image), np.array(processed_image))
+            ssim_value = calculate_ssim(np.array(original_image), np.array(processed_image))
+            brisque_value = calculate_brisque(np.array(processed_image))
+
             display_image(processed_image, processed_label)
+            metrics_label.configure(
+                text=f"PSNR: {psnr_value:.2f} dB | SSIM: {ssim_value:.3f} | BRISQUE: {brisque_value:.2f}"
+            )
         except Exception as e:
             messagebox.showerror("Erreur", f"Erreur lors de la restauration : {e}")
 
@@ -331,7 +403,6 @@ def dynamic_range_expansion(image, y_min=0, y_max=255):
 
 # Calcul de PSNR
 def calculate_psnr(original, restored):
-    # Assurez-vous que les deux images sont de type uint8
     if original.dtype != np.uint8:
         if original.max() <= 1.0:  # Normalisé entre 0 et 1
             original = (original * 255).astype("uint8")
@@ -372,7 +443,10 @@ def list_model_files(model_type):
     global selected_model_file, model_file_selector
     directory = model_directory.get(model_type, "")
     if os.path.exists(directory):
-        return [f for f in os.listdir(directory) if f.endswith(".keras") or f.endswith(".weights.h5")]
+        files = [f for f in os.listdir(directory) if f.endswith(".keras") or f.endswith(".weights.h5")]
+        print(f"Fichiers trouvés pour {model_type}: {files}")
+        return files
+    print(f"Aucun répertoire trouvé pour {model_type}.")
     return []
 
 # Fonction pour définir le fichier de modèle sélectionné
@@ -403,7 +477,6 @@ def set_model(value):
         selected_model_file = None
         print(f"Aucun fichier de modèle trouvé dans le répertoire : {model_directory.get(selected_model, '')}")
 
-
 # Mise à jour des widgets selon la méthode sélectionnée
 def set_method(value):
     global selected_method, draw_button, load_mask_button, erosion_checkbox
@@ -416,12 +489,17 @@ def set_method(value):
     global domains_label
     global pond_X_value, pond_Y_value, pond_Z_value
     global mask, mask_image, original_image
+    global invert_checkbox
 
     processed_image = None
     display_image(None, processed_label)
 
     if original_image is not None:
-        mask = np.ones((original_image.height, original_image.width), dtype=np.uint8) * 255
+        if value == "IA":
+            mask = np.ones((original_image.height, original_image.width), dtype=np.uint8) * 34
+        else:
+            mask = np.ones((original_image.height, original_image.width), dtype=np.uint8) * 255
+
         mask_image = Image.fromarray(mask)
         display_image(mask_image, mask_label)
 
@@ -432,7 +510,7 @@ def set_method(value):
         pond_X_value, pond_Y_value, pond_Z_value,
         pond_X_label, pond_Y_label, pond_Z_label,
         use_X_checkbox, use_Y_checkbox, use_Z_checkbox,
-        domains_label
+        domains_label, invert_checkbox
     ]
 
     for widget in widgets:
@@ -448,8 +526,8 @@ def set_method(value):
     pond_X_value = pond_Y_value = pond_Z_value = None
     pond_X_label = pond_Y_label = pond_Z_label = None
     use_X_checkbox = use_Y_checkbox = use_Z_checkbox = None
+    invert_checkbox = None
 
-    # Définir la méthode sélectionnée
     selected_method = value
 
     if value == "Classique":
@@ -474,7 +552,6 @@ def set_method(value):
         inpainting_radius_value.place(relx=0.6, rely=0.85, anchor="center")
 
     elif value == "Hybride":
-        # Ajouter les éléments spécifiques à la méthode Hybride
         load_mask_button = ctk.CTkButton(app, text="Charger un masque", command=load_mask, width=150)
         load_mask_button.place(relx=0.5, rely=0.3, anchor="center")
 
@@ -490,16 +567,16 @@ def set_method(value):
         inpainting_radius_value.place(relx=0.6, rely=0.85, anchor="center")
 
     elif value == "IA":
-        # Ajouter le dropdown pour sélectionner le modèle
         model_selector = ctk.CTkOptionMenu(app, values=["Modèle 1", "Modèle 2", "Modèle 3"], command=set_model, width=200)
         model_selector.place(relx=0.5, rely=0.3, anchor="center")
         set_model("Modèle 1")
 
-        # Ajouter texte pour les domaines d'entrées
+        invert_checkbox = ctk.CTkCheckBox(app, text="Inverser les couleurs", command=toggle_invert_colors)
+        invert_checkbox.place(relx=0.5, rely=0.67, anchor="center")
+
         domains_label = ctk.CTkLabel(app, text="Domaines d'entrées (XYZ)", text_color="white", font=("Arial", 14))
         domains_label.place(relx=0.5, rely=0.45, anchor="center")
 
-        # Ajouter checkboxes pour les domaines
         use_X_checkbox = ctk.CTkCheckBox(app, text="Domaine X", command=toggle_use_X)
         use_X_checkbox.place(relx=0.4, rely=0.5, anchor="center")
         use_X_checkbox.select()
@@ -513,28 +590,28 @@ def set_method(value):
         use_Z_checkbox.select()
 
         pond_X_label = ctk.CTkLabel(app, text="Pondération X", text_color="white")
-        pond_X_label.place(relx=0.4, rely=0.55, anchor="center")  # Était 0.5
+        pond_X_label.place(relx=0.4, rely=0.55, anchor="center")  
         pond_X_slider = ctk.CTkSlider(app, from_=0.0, to=1.0, command=update_pond_X, width=120)
         pond_X_slider.set(pond_X)
-        pond_X_slider.place(relx=0.4, rely=0.6, anchor="center")  # Était 0.55
+        pond_X_slider.place(relx=0.4, rely=0.6, anchor="center")  
         pond_X_value = ctk.CTkLabel(app, text=f"{pond_X:.2f}", text_color="white")
-        pond_X_value.place(relx=0.4, rely=0.63, anchor="center")  # Était 0.58
+        pond_X_value.place(relx=0.4, rely=0.63, anchor="center")  
 
         pond_Y_label = ctk.CTkLabel(app, text="Pondération Y", text_color="white")
-        pond_Y_label.place(relx=0.5, rely=0.55, anchor="center")  # Était 0.5
+        pond_Y_label.place(relx=0.5, rely=0.55, anchor="center") 
         pond_Y_slider = ctk.CTkSlider(app, from_=0.0, to=1.0, command=update_pond_Y, width=120)
         pond_Y_slider.set(pond_Y)
-        pond_Y_slider.place(relx=0.5, rely=0.6, anchor="center")  # Était 0.55
+        pond_Y_slider.place(relx=0.5, rely=0.6, anchor="center")  
         pond_Y_value = ctk.CTkLabel(app, text=f"{pond_Y:.2f}", text_color="white")
-        pond_Y_value.place(relx=0.5, rely=0.63, anchor="center")  # Était 0.58
+        pond_Y_value.place(relx=0.5, rely=0.63, anchor="center")  
 
         pond_Z_label = ctk.CTkLabel(app, text="Pondération Z", text_color="white")
-        pond_Z_label.place(relx=0.6, rely=0.55, anchor="center")  # Était 0.5
+        pond_Z_label.place(relx=0.6, rely=0.55, anchor="center") 
         pond_Z_slider = ctk.CTkSlider(app, from_=0.0, to=1.0, command=update_pond_Z, width=120)
         pond_Z_slider.set(pond_Z)
-        pond_Z_slider.place(relx=0.6, rely=0.6, anchor="center")  # Était 0.55
+        pond_Z_slider.place(relx=0.6, rely=0.6, anchor="center")  
         pond_Z_value = ctk.CTkLabel(app, text=f"{pond_Z:.2f}", text_color="white")
-        pond_Z_value.place(relx=0.6, rely=0.63, anchor="center")  # Était 0.58
+        pond_Z_value.place(relx=0.6, rely=0.63, anchor="center") 
 
 model_selector = None
 
@@ -568,6 +645,9 @@ processed_label.place(relx=0.75, rely=0.55, anchor="center")
 
 metrics_label = ctk.CTkLabel(app, text="", text_color="white", font=("Poppins", 16))
 metrics_label.place(relx=0.5, rely=0.95, anchor="center")
+
+save_button = ctk.CTkButton(app, text="Sauvegarder", command=save_processed_image, width=150)
+save_button.place(relx=0.75, rely=0.8, anchor="center")
 
 set_method("Classique")
 app.mainloop()

@@ -147,22 +147,34 @@ def calculate_beta(epoch, max_beta=MAX_BETA, anneal_epochs=ANNEAL_EPOCH, method=
         raise ValueError(f"Unknown method: {method}")
 
 # Fonction de perte
-def vae_loss(inputs, outputs, z_mean, z_log_var, beta=1.0):
-    """Calcule la perte de reconstruction et la divergence KL."""
-
-    # la cross entropie peut être trop sévère pour des données d'intensités continue comme les images / utiliser MSE
-    #reconstruction_loss = tf.reduce_mean(tf.square(inputs - outputs)) # MSE
-    reconstruction_loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(inputs, outputs)) # ENtropie croisée binaire
-    alpha = tf.minimum(ALPHA_MAX, 1.0 / (beta + 1e-6))
-    reconstruction_loss = alpha * reconstruction_loss
+def vae_loss(inputs, outputs, z_mean, z_log_var, feature_extractor=None, beta=1.0, alpha_max=1.0):
+    """Calcule la perte de reconstruction, perceptuelle, SSIM et divergence KL."""
     
+    # Perte de reconstruction (MSE ou BCE)
+    reconstruction_loss = tf.reduce_mean(tf.square(inputs - outputs))  # MSE
+    # reconstruction_loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(inputs, outputs))  # BCE
+
+    # Pondération adaptative pour la reconstruction
+    alpha = tf.minimum(alpha_max, tf.exp(-beta))
+    reconstruction_loss = alpha * reconstruction_loss
+
+    # Perte perceptuelle (facultative, nécessite un réseau pré-entraîné)
+    perceptual_loss_value = 0
+    if feature_extractor is not None:
+        perceptual_loss_value = tf.reduce_mean(tf.abs(
+            feature_extractor(inputs) - feature_extractor(outputs)
+        ))
+
+    # Perte SSIM (facultative)
+    ssim_loss = 1 - tf.reduce_mean(tf.image.ssim(inputs, outputs, max_val=1.0))
+
+    # Perte KL (avec pondération beta)
     kl_loss = -0.5 * tf.reduce_sum(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=-1)
     kl_loss = tf.reduce_mean(kl_loss)
-
-    # La perte KL et la perte totale peuvent ne pas converger efficacement -> utilisation de Beta
     kl_loss = beta * kl_loss
-    
-    return reconstruction_loss, kl_loss, reconstruction_loss + kl_loss
+
+    # Somme des pertes
+    total_loss = reconstruction_loss + kl_loss + perceptual_loss_value + ssim_loss
 
 def train_step(model, inputs, optimizer, beta):
     """Effectue une étape d'entraînement."""
