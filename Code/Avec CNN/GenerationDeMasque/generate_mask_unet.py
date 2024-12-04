@@ -17,4 +17,4 @@ results = model.predict(test_gen, verbose=1)
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 
-saveResult(output_path, results, threshold=0.5)
+saveResult(output_path, results, threshold=0.25)

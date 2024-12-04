@@ -133,7 +133,6 @@ def labelVisualize(num_class,color_dict,img):
         img_out[img == i,:] = color_dict[i]
     return img_out / 255
 
-
 def saveResult(save_path, results, threshold=0.5):
     os.makedirs(save_path, exist_ok=True)
 
