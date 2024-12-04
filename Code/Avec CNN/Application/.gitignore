@@ -1,1 +1,4 @@
 Modèles/VAE_MultDomaines_AvecUnet/vae_full_model.keras
+Modèles/VAE_MultDomaines_SansUnet/vae_full_model.keras
+Modèles/VAE_MultDomaines_Microsoft/vae_full_model.keras
+Modèles/GenMasque/unet_trained_model.keras

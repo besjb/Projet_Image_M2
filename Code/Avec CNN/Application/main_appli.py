@@ -42,6 +42,7 @@ drawing = False
 # Widgets dynamiques
 draw_button = None
 load_mask_button = None
+gen_mask_button = None
 brush_size_slider = None
 brush_size_label = None
 brush_size_value = None
@@ -198,6 +199,42 @@ def load_mask():
         eroded_mask = None  # Réinitialiser le masque érodé
         mask_image = Image.fromarray(mask)
         display_image(mask_image, mask_label)
+
+def gen_mask():
+    """
+    Génère un masque pour l'image originale déjà chargée en utilisant un modèle U-Net.
+    """
+    global original_image, mask, mask_image
+    try:
+        if original_image is None:
+            messagebox.showerror("Erreur", "Aucune image originale chargée. Veuillez d'abord charger une image.")
+            return
+
+        # Convertir l'image PIL en tableau NumPy
+        input_image = np.array(original_image.resize((256, 256)).convert("L")) / 255.0
+        input_image = np.expand_dims(input_image, axis=(0, -1))  # (1, 256, 256, 1)
+
+        # Charger le modèle U-Net
+        gen_masque_dir = os.path.join(base_model_directory, "genMasque")
+        model_path = os.path.join(gen_masque_dir, "unet_trained_model.keras")
+        if not os.path.exists(model_path):
+            messagebox.showerror("Erreur", "Le modèle U-Net est introuvable.")
+            return
+
+        model = tf.keras.models.load_model(model_path)
+
+        # Générer le masque
+        prediction = model.predict(input_image, verbose=0)
+        mask = (prediction[0, :, :, 0] > 0.25).astype(np.uint8) * 255  # Seulement le premier canal
+
+        # Convertir le masque en image PIL et l'afficher
+        mask_image = Image.fromarray(mask)
+        display_image(mask_image, mask_label)
+
+        messagebox.showinfo("Succès", "Masque généré avec succès à partir de l'image originale.")
+    except Exception as e:
+        messagebox.showerror("Erreur", f"Erreur lors de la génération du masque : {e}")
+
 
 def display_image(image, label_widget):
     if image:
@@ -479,7 +516,7 @@ def set_model(value):
 
 # Mise à jour des widgets selon la méthode sélectionnée
 def set_method(value):
-    global selected_method, draw_button, load_mask_button, erosion_checkbox
+    global selected_method, draw_button, load_mask_button, gen_mask_button, erosion_checkbox
     global brush_size_label, brush_size_slider, brush_size_value
     global inpainting_radius_label, inpainting_radius_slider, inpainting_radius_value
     global model_selector, model_file_selector
@@ -504,7 +541,7 @@ def set_method(value):
         display_image(mask_image, mask_label)
 
     widgets = [
-        draw_button, load_mask_button, erosion_checkbox, brush_size_label, brush_size_slider, brush_size_value,
+        draw_button, load_mask_button, gen_mask_button, erosion_checkbox, brush_size_label, brush_size_slider, brush_size_value,
         inpainting_radius_label, inpainting_radius_slider, inpainting_radius_value, model_selector,
         model_file_selector, pond_X_slider, pond_Y_slider, pond_Z_slider,
         pond_X_value, pond_Y_value, pond_Z_value,
@@ -553,7 +590,10 @@ def set_method(value):
 
     elif value == "Hybride":
         load_mask_button = ctk.CTkButton(app, text="Charger un masque", command=load_mask, width=150)
-        load_mask_button.place(relx=0.5, rely=0.3, anchor="center")
+        load_mask_button.place(relx=0.44, rely=0.3, anchor="center")
+
+        gen_mask_button = ctk.CTkButton(app, text="Générer un masque", command=load_mask, width=150)
+        gen_mask_button.place(relx=0.56, rely=0.3, anchor="center")
 
         erosion_checkbox = ctk.CTkCheckBox(app, text="Appliquer une érosion", command=lambda: toggle_erosion(erosion_checkbox.get()))
         erosion_checkbox.place(relx=0.5, rely=0.78, anchor="center")
