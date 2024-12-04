@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 train_path = "Dataset_preprocessed"
 image_folder = "degraded_images"
 mask_folder = "masks"
-batch_size = 4
+batch_size = 32
 epochs = 100
 steps_per_epoch = 300
 target_size = (256, 256)

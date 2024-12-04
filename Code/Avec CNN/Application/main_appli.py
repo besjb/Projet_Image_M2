@@ -186,6 +186,8 @@ def load_image():
     file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg *.png *.jpeg *.bmp")])
     if file_path:
         original_image = Image.open(file_path).convert("L")
+        original_image = original_image.resize((256, 256))
+
         mask = np.ones((original_image.height, original_image.width), dtype=np.uint8) * 255
         eroded_mask = None  # Réinitialiser le masque érodé
         display_image(original_image, original_label)
@@ -202,7 +204,8 @@ def load_mask():
 
 def gen_mask():
     """
-    Génère un masque pour l'image originale déjà chargée en utilisant un modèle U-Net.
+    Charge le modèle U-Net, génère un masque binaire pour l'image originale chargée, 
+    et affiche le masque généré.
     """
     global original_image, mask, mask_image
     try:
@@ -210,31 +213,33 @@ def gen_mask():
             messagebox.showerror("Erreur", "Aucune image originale chargée. Veuillez d'abord charger une image.")
             return
 
-        # Convertir l'image PIL en tableau NumPy
+        # Convertir l'image originale en format compatible avec le modèle
         input_image = np.array(original_image.resize((256, 256)).convert("L")) / 255.0
         input_image = np.expand_dims(input_image, axis=(0, -1))  # (1, 256, 256, 1)
 
-        # Charger le modèle U-Net
-        gen_masque_dir = os.path.join(base_model_directory, "genMasque")
+        # Charger dynamiquement le modèle U-Net
+        gen_masque_dir = os.path.join(base_model_directory, "GenMasque")
         model_path = os.path.join(gen_masque_dir, "unet_trained_model.keras")
         if not os.path.exists(model_path):
-            messagebox.showerror("Erreur", "Le modèle U-Net est introuvable.")
+            messagebox.showerror("Erreur", "Le modèle U-Net est introuvable dans le répertoire spécifié.")
             return
 
+        # Charger le modèle U-Net
         model = tf.keras.models.load_model(model_path)
+        print("Modèle U-Net chargé avec succès.")
 
-        # Générer le masque
+        # Faire la prédiction pour générer le masque
         prediction = model.predict(input_image, verbose=0)
-        mask = (prediction[0, :, :, 0] > 0.25).astype(np.uint8) * 255  # Seulement le premier canal
+        mask = (prediction[0, :, :, 0] > 0.5).astype(np.uint8) * 255  # Seuil à 0.5 pour un masque binaire
+        mask = cv2.bitwise_not(mask)
 
-        # Convertir le masque en image PIL et l'afficher
+        # Convertir le masque en image PIL et l'afficher dans l'interface
         mask_image = Image.fromarray(mask)
         display_image(mask_image, mask_label)
 
-        messagebox.showinfo("Succès", "Masque généré avec succès à partir de l'image originale.")
+        messagebox.showinfo("Succès", "Masque binaire généré avec succès.")
     except Exception as e:
         messagebox.showerror("Erreur", f"Erreur lors de la génération du masque : {e}")
-
 
 def display_image(image, label_widget):
     if image:
@@ -592,7 +597,7 @@ def set_method(value):
         load_mask_button = ctk.CTkButton(app, text="Charger un masque", command=load_mask, width=150)
         load_mask_button.place(relx=0.44, rely=0.3, anchor="center")
 
-        gen_mask_button = ctk.CTkButton(app, text="Générer un masque", command=load_mask, width=150)
+        gen_mask_button = ctk.CTkButton(app, text="Générer un masque", command=gen_mask, width=150)
         gen_mask_button.place(relx=0.56, rely=0.3, anchor="center")
 
         erosion_checkbox = ctk.CTkCheckBox(app, text="Appliquer une érosion", command=lambda: toggle_erosion(erosion_checkbox.get()))
