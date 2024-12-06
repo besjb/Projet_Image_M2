@@ -17,7 +17,7 @@ from tkinter import Tk, filedialog
 from PIL import Image, ImageTk
 
 from brisque import BRISQUE
-
+import threading
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -37,7 +37,8 @@ apply_erosion = False
 inpainting_radius = 3
 brush_size = 15
 selected_method = "Classique"
-drawing = False 
+drawing = False
+mask_threshold = 0.5
 
 # Widgets dynamiques
 draw_button = None
@@ -111,6 +112,10 @@ domains_label = None
 invert_checkbox = None
 invert_colors = False
 
+mask_threshold_slider = None
+mask_threshold_label = None
+mask_threshold_value = None
+
 current_directory = os.path.dirname(os.path.abspath(__file__))
 base_model_directory = os.path.join(current_directory, "Modèles")
 
@@ -134,6 +139,12 @@ def save_processed_image():
         except Exception as e:
             messagebox.showerror("Erreur", f"Erreur lors de la sauvegarde de l'image : {e}")
 
+def update_mask_threshold(value):
+    global mask_threshold, mask_threshold_value
+    mask_threshold = float(value)
+    if mask_threshold_value:
+        mask_threshold_value.configure(text=f"{mask_threshold:.2f}")
+
 def calculate_brisque(image):
     """
     Calcule le score BRISQUE pour une image donnée.
@@ -152,20 +163,25 @@ def get_model_directories(base_path):
     """
     Parcourt le répertoire racine et retourne un dictionnaire
     contenant les noms des modèles (Modèle 1, Modèle 2, etc.)
-    et leurs chemins complets.
+    et leurs chemins complets, en excluant certains dossiers spécifiques.
     """
+    excluded_dirs = {"GenMasque"}  # Liste ou set des dossiers à exclure
     model_dirs = {}
+    
     if os.path.exists(base_path):
-        subdirs = [entry for entry in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, entry))]
+        subdirs = [
+            entry for entry in os.listdir(base_path)
+            if os.path.isdir(os.path.join(base_path, entry)) and entry not in excluded_dirs
+        ]
         for idx, subdir in enumerate(sorted(subdirs), start=1):
             full_path = os.path.join(base_path, subdir)
             model_name = f"Modèle {idx}"
             model_dirs[model_name] = full_path
+
     return model_dirs
 
 model_directory = get_model_directories(base_model_directory)
 print("Modèles détectés :", model_directory)
-
 
 selected_model_file = None
 model_file_selector = None
@@ -230,7 +246,7 @@ def gen_mask():
 
         # Faire la prédiction pour générer le masque
         prediction = model.predict(input_image, verbose=0)
-        mask = (prediction[0, :, :, 0] > 0.5).astype(np.uint8) * 255  # Seuil à 0.5 pour un masque binaire
+        mask = (prediction[0, :, :, 0] > mask_threshold).astype(np.uint8) * 255
         mask = cv2.bitwise_not(mask)
 
         # Convertir le masque en image PIL et l'afficher dans l'interface
@@ -331,13 +347,13 @@ def apply_restoration():
         mask_inverted = cv2.bitwise_not(mask)
 
         inpainted_img = cv2.inpaint(damaged_img, mask_inverted, inpaintRadius=inpainting_radius, flags=cv2.INPAINT_TELEA)
-        expanded_image = dynamic_range_expansion(inpainted_img)
+        #expanded_image = dynamic_range_expansion(inpainted_img)
 
-        psnr_value = calculate_psnr(damaged_img, expanded_image)
-        ssim_value = calculate_ssim(damaged_img, expanded_image)
-        brisque_value = calculate_brisque(expanded_image)
+        psnr_value = calculate_psnr(damaged_img, inpainted_img)
+        ssim_value = calculate_ssim(damaged_img, inpainted_img)
+        brisque_value = calculate_brisque(inpainted_img)
 
-        processed_image = Image.fromarray(expanded_image)
+        processed_image = Image.fromarray(inpainted_img)
         display_image(processed_image, processed_label)
         metrics_label.configure(
             text=f"PSNR: {psnr_value:.2f} dB | SSIM: {ssim_value:.3f} | BRISQUE: {brisque_value:.2f}"
@@ -350,20 +366,21 @@ def apply_restoration():
 
         # Appliquer l'érosion
         kernel = np.ones((3, 3), np.uint8)
-        eroded_mask = cv2.erode(mask, kernel, iterations=1) if apply_erosion else mask
+        thresholded_mask = (mask > (mask_threshold * 255)).astype(np.uint8) * 255
+        eroded_mask = cv2.erode(thresholded_mask, kernel, iterations=1) if apply_erosion else thresholded_mask
 
         # Traitement pour la méthode Hybride
         damaged_img = np.array(original_image)
         mask_inverted = cv2.bitwise_not(eroded_mask)
 
         inpainted_img = cv2.inpaint(damaged_img, mask_inverted, inpaintRadius=inpainting_radius, flags=cv2.INPAINT_TELEA)
-        expanded_image = dynamic_range_expansion(inpainted_img)
+        #expanded_image = dynamic_range_expansion(inpainted_img)
 
-        psnr_value = calculate_psnr(damaged_img, expanded_image)
-        ssim_value = calculate_ssim(damaged_img, expanded_image)
-        brisque_value = calculate_brisque(expanded_image)
+        psnr_value = calculate_psnr(damaged_img, inpainted_img)
+        ssim_value = calculate_ssim(damaged_img, inpainted_img)
+        brisque_value = calculate_brisque(inpainted_img)
 
-        processed_image = Image.fromarray(expanded_image)
+        processed_image = Image.fromarray(inpainted_img)
         display_image(processed_image, processed_label)
         metrics_label.configure(
             text=f"PSNR: {psnr_value:.2f} dB | SSIM: {ssim_value:.3f} | BRISQUE: {brisque_value:.2f}"
@@ -532,6 +549,36 @@ def set_method(value):
     global pond_X_value, pond_Y_value, pond_Z_value
     global mask, mask_image, original_image
     global invert_checkbox
+    global mask_threshold_slider, mask_threshold_label, mask_threshold_value
+
+    widgets_to_destroy = [
+        draw_button, load_mask_button, gen_mask_button, erosion_checkbox,
+        brush_size_label, brush_size_slider, brush_size_value,
+        inpainting_radius_label, inpainting_radius_slider, inpainting_radius_value,
+        model_selector, model_file_selector,
+        pond_X_slider, pond_Y_slider, pond_Z_slider,
+        pond_X_value, pond_Y_value, pond_Z_value,
+        pond_X_label, pond_Y_label, pond_Z_label,
+        use_X_checkbox, use_Y_checkbox, use_Z_checkbox,
+        domains_label, invert_checkbox,
+        mask_threshold_slider, mask_threshold_label, mask_threshold_value
+    ]
+
+    for widget in widgets_to_destroy:
+        if widget is not None:
+            widget.destroy()
+
+    # Réinitialiser les références
+    draw_button = load_mask_button = gen_mask_button = erosion_checkbox = None
+    brush_size_label = brush_size_slider = brush_size_value = None
+    inpainting_radius_label = inpainting_radius_slider = inpainting_radius_value = None
+    model_selector = model_file_selector = None
+    pond_X_slider = pond_Y_slider = pond_Z_slider = None
+    pond_X_value = pond_Y_value = pond_Z_value = None
+    pond_X_label = pond_Y_label = pond_Z_label = None
+    use_X_checkbox = use_Y_checkbox = use_Z_checkbox = None
+    domains_label = invert_checkbox = None
+    mask_threshold_slider = mask_threshold_label = mask_threshold_value = None
 
     processed_image = None
     display_image(None, processed_label)
@@ -545,35 +592,10 @@ def set_method(value):
         mask_image = Image.fromarray(mask)
         display_image(mask_image, mask_label)
 
-    widgets = [
-        draw_button, load_mask_button, gen_mask_button, erosion_checkbox, brush_size_label, brush_size_slider, brush_size_value,
-        inpainting_radius_label, inpainting_radius_slider, inpainting_radius_value, model_selector,
-        model_file_selector, pond_X_slider, pond_Y_slider, pond_Z_slider,
-        pond_X_value, pond_Y_value, pond_Z_value,
-        pond_X_label, pond_Y_label, pond_Z_label,
-        use_X_checkbox, use_Y_checkbox, use_Z_checkbox,
-        domains_label, invert_checkbox
-    ]
-
-    for widget in widgets:
-        if widget:
-            widget.destroy()
-
-    # Réinitialiser les références
-    draw_button = load_mask_button = erosion_checkbox = None
-    brush_size_label = brush_size_slider = brush_size_value = None
-    inpainting_radius_label = inpainting_radius_slider = inpainting_radius_value = None
-    model_selector = model_file_selector = None
-    pond_X_slider = pond_Y_slider = pond_Z_slider = None
-    pond_X_value = pond_Y_value = pond_Z_value = None
-    pond_X_label = pond_Y_label = pond_Z_label = None
-    use_X_checkbox = use_Y_checkbox = use_Z_checkbox = None
-    invert_checkbox = None
 
     selected_method = value
 
     if value == "Classique":
-        # Ajouter les éléments spécifiques à la méthode Classique
         draw_button = ctk.CTkButton(app, text="Dessiner le masque", command=draw_mask, width=150)
         draw_button.place(relx=0.5, rely=0.3, anchor="center")
 
@@ -600,8 +622,16 @@ def set_method(value):
         gen_mask_button = ctk.CTkButton(app, text="Générer un masque", command=gen_mask, width=150)
         gen_mask_button.place(relx=0.56, rely=0.3, anchor="center")
 
+        center_x = 0.5
         erosion_checkbox = ctk.CTkCheckBox(app, text="Appliquer une érosion", command=lambda: toggle_erosion(erosion_checkbox.get()))
-        erosion_checkbox.place(relx=0.5, rely=0.78, anchor="center")
+        erosion_checkbox.place(relx=center_x - 0.08, rely=0.78, anchor="center")
+        mask_threshold_label = ctk.CTkLabel(app, text="Seuil du masque", text_color="white")
+        mask_threshold_label.place(relx=center_x + 0.05, rely=0.81, anchor="center")
+        mask_threshold_slider = ctk.CTkSlider(app, from_=0., to=1.0, command=update_mask_threshold, width=150)
+        mask_threshold_slider.set(mask_threshold)
+        mask_threshold_slider.place(relx=center_x + 0.05, rely=0.78, anchor="center")
+        mask_threshold_value = ctk.CTkLabel(app, text=f"{mask_threshold:.2f}", text_color="white")
+        mask_threshold_value.place(relx=center_x + 0.13, rely=0.78, anchor="center")
 
         inpainting_radius_label = ctk.CTkLabel(app, text="Rayon d'inpainting", text_color="white")
         inpainting_radius_label.place(relx=0.37, rely=0.85, anchor="center")
@@ -693,6 +723,7 @@ metrics_label.place(relx=0.5, rely=0.95, anchor="center")
 
 save_button = ctk.CTkButton(app, text="Sauvegarder", command=save_processed_image, width=150)
 save_button.place(relx=0.75, rely=0.8, anchor="center")
+
 
 set_method("Classique")
 app.mainloop()

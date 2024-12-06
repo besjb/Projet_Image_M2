@@ -5,23 +5,58 @@ from model import MultiDomainVAE
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from brisque import BRISQUE
+import cv2
+from skimage.metrics import peak_signal_noise_ratio as psnr, structural_similarity as ssim
+from tensorflow.keras.applications import VGG19
 
 DATASET_DIR = "Dataset"
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 IMAGE_SIZE = (256, 256)
-LATENT_DIM = 256
+LATENT_DIM = 1024
 EPOCHS = 1
 BETA = 0.001
 MAX_BETA = 1.
-ANNEAL_EPOCH = 5
+ANNEAL_EPOCH = 3
 TAUX_APPRENTISSAGE = 1e-6
-ALPHA_MAX = 10.
+ALPHA_MAX = 1.
 
 PONDERATION_X_TRAIN = 1.
 PONDERATION_Y_TRAIN = 1.
 PONDERATION_Z_TRAIN = 1.
 
 SHUFFLE = False
+
+def get_feature_extractor(input_shape):
+    vgg = VGG19(include_top=False, weights='imagenet', input_shape=input_shape)
+    vgg.trainable = False
+    feature_extractor = Model(inputs=vgg.input, outputs=vgg.get_layer("block3_conv3").output)
+    return feature_extractor
+
+def calculate_brisque(images, epoch, output_dir="Résultats"):
+    """
+    Calcule le score BRISQUE pour une liste d'images et sauvegarde les résultats dans un fichier texte.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    scores = []
+
+    for i, image in enumerate(images):
+
+        img = (image.numpy().squeeze() * 255).astype("uint8")
+        if len(img.shape) == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+
+        brisque_evaluator = BRISQUE()
+        score = brisque_evaluator.score(img)
+        scores.append(score)
+    
+    with open(os.path.join(output_dir, f"brisque_scores_epoch{epoch}.txt"), "w") as f:
+        for i, score in enumerate(scores):
+            f.write(f"Image {i}: BRISQUE Score = {score:.2f}\n")
+
+    avg_score = np.mean(scores)
+    print(f"Score BRISQUE moyen pour l'époque {epoch}: {avg_score:.2f}")
+    return avg_score
 
 def preprocess_image(image):
     """Prétraitement : normalisation et redimensionnement."""
@@ -43,11 +78,13 @@ def save_loss_curves(epoch_losses, output_dir="Résultats", epoch=None):
     os.makedirs(output_dir, exist_ok=True)
     num_epochs = len(epoch_losses['reconstruction']) 
     epochs_range = range(1, num_epochs + 1)
+    xticks_labels = [str(epoch) if epoch % 5 == 0 else '' for epoch in epochs]
+
     plt.figure(figsize=(10, 6))
     plt.plot(epochs_range, epoch_losses['reconstruction'], label="Perte Reconstruction", marker='o')
     plt.plot(epochs_range, epoch_losses['kl'], label="Perte KL", marker='o')
     plt.plot(epochs_range, epoch_losses['total'], label="Perte Totale", marker='o')
-    plt.xticks(epochs_range)
+    plt.xticks(epochs, xticks_labels)
     plt.xlabel("Époque")
     plt.ylabel("Valeur de la Perte")
     plt.title("Évolution des Pertes")
@@ -118,22 +155,36 @@ def calculate_beta(epoch, max_beta=MAX_BETA, anneal_epochs=ANNEAL_EPOCH, method=
         raise ValueError(f"Unknown method: {method}")
 
 # Fonction de perte
-def vae_loss(inputs, outputs, z_mean, z_log_var, beta=1.0):
-    """Calcule la perte de reconstruction et la divergence KL."""
-
-    # la cross entropie peut être trop sévère pour des données d'intensités continue comme les images / utiliser MSE
-    #reconstruction_loss = tf.reduce_mean(tf.square(inputs - outputs)) # MSE
-    reconstruction_loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(inputs, outputs)) # ENtropie croisée binaire
-    alpha = tf.minimum(ALPHA_MAX, 1.0 / (beta + 1e-6))
-    reconstruction_loss = alpha * reconstruction_loss
+def vae_loss(inputs, outputs, z_mean, z_log_var, feature_extractor=None, beta=1.0, alpha_max=1.0):
+    """Calcule la perte de reconstruction, perceptuelle, SSIM et divergence KL."""
     
+    # Perte de reconstruction (MSE ou BCE)
+    reconstruction_loss = tf.reduce_mean(tf.square(inputs - outputs))  # MSE
+    # reconstruction_loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(inputs, outputs))  # BCE
+
+    # Pondération adaptative pour la reconstruction
+    alpha = tf.minimum(alpha_max, tf.exp(-beta))
+    reconstruction_loss = alpha * reconstruction_loss
+
+    # Perte perceptuelle
+    perceptual_loss_value = 0
+    if feature_extractor is not None:
+        features_inputs = feature_extractor(inputs)
+        features_outputs = feature_extractor(outputs)
+        perceptual_loss_value = tf.reduce_mean(tf.abs(features_inputs - features_outputs))
+
+    # Perte SSIM
+    ssim_loss = 1 - tf.reduce_mean(tf.image.ssim(inputs, outputs, max_val=1.0))
+
+    # Perte KL (avec pondération beta)
     kl_loss = -0.5 * tf.reduce_sum(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=-1)
     kl_loss = tf.reduce_mean(kl_loss)
-
-    # La perte KL et la perte totale peuvent ne pas converger efficacement -> utilisation de Beta
     kl_loss = beta * kl_loss
-    
-    return reconstruction_loss, kl_loss, reconstruction_loss + kl_loss
+
+    # Somme des pertes
+    total_loss = reconstruction_loss + kl_loss + perceptual_loss_value + ssim_loss
+
+    return reconstruction_loss, kl_loss, total_loss
 
 def train_step(model, inputs, optimizer, beta):
     """Effectue une étape d'entraînement."""
@@ -149,8 +200,9 @@ def train_step(model, inputs, optimizer, beta):
     return loss_X, loss_Y, loss_Z, total_loss
 
 def train(model, datasets, epochs, optimizer, anneal_epochs=ANNEAL_EPOCH, max_beta=MAX_BETA):
-    """Boucle d'entraînement principale avec barre de progression."""
+    """Boucle d'entraînement principale avec suivi de PSNR, SSIM et BRISQUE."""
     epoch_losses = {'reconstruction': [], 'kl': [], 'total': []}  # Suivi des pertes / époque
+    epoch_metrics = {'psnr': [], 'ssim': [], 'brisque': []}  # PSNR, SSIM, BRISQUE par époque
 
     for epoch in range(epochs):
         print(f"Époque {epoch + 1}/{epochs}")
@@ -160,7 +212,6 @@ def train(model, datasets, epochs, optimizer, anneal_epochs=ANNEAL_EPOCH, max_be
         
         with tqdm(total=len(datasets['Real_Photos'])) as pbar:
             for batch_X, batch_Y, batch_Z in zip(datasets['Real_Photos'], datasets['Synthesized_Old_Photos'], datasets['Old_Photos']):
-
                 # Préparez le batch comme dictionnaire
                 inputs = {'X': batch_X, 'Y': batch_Y, 'Z': batch_Z}
                 
@@ -173,24 +224,84 @@ def train(model, datasets, epochs, optimizer, anneal_epochs=ANNEAL_EPOCH, max_be
                 
                 pbar.set_postfix({'Perte Moyenne': f"{np.mean(epoch_loss['total']):.6f}"})
                 pbar.update(1)
-        
 
         # Calcul des moyennes pour cette époque
         epoch_losses['reconstruction'].append(np.mean(epoch_loss['reconstruction']))
         epoch_losses['kl'].append(np.mean(epoch_loss['kl']))
         epoch_losses['total'].append(np.mean(epoch_loss['total']))
 
-        # Métriques
-        print(f"Perte Moyenne de l'Époque {epoch + 1}: {np.mean(epoch_loss['total']):.6f}")
+        # Évaluation des reconstructions pour PSNR, SSIM, et BRISQUE
+        reconstructions = model(inputs, training=False)['X']
+        psnr_scores = []
+        ssim_scores = []
+
+        for original, reconstructed in zip(inputs['X'], reconstructions):
+            original_img = (original.numpy().squeeze() * 255).astype("uint8")
+            reconstructed_img = (reconstructed.numpy().squeeze() * 255).astype("uint8")
+
+            # Calculer PSNR et SSIM
+            psnr_scores.append(psnr(original_img, reconstructed_img, data_range=255))
+            ssim_scores.append(ssim(original_img, reconstructed_img, data_range=255))
+
+        avg_psnr = np.mean(psnr_scores)
+        avg_ssim = np.mean(ssim_scores)
+        avg_brisque = calculate_brisque(inputs['X'], epoch + 1, output_dir="Résultats")
+
+        # Enregistrer les métriques moyennes
+        epoch_metrics['psnr'].append(avg_psnr)
+        epoch_metrics['ssim'].append(avg_ssim)
+        epoch_metrics['brisque'].append(avg_brisque)
+
+        # Afficher les métriques moyennes
+        print(f"PSNR moyen pour l'époque {epoch + 1}: {avg_psnr:.2f}")
+        print(f"SSIM moyen pour l'époque {epoch + 1}: {avg_ssim:.2f}")
+        print(f"BRISQUE moyen pour l'époque {epoch + 1}: {avg_brisque:.2f}")
 
         save_reconstructions(
             inputs=inputs['X'],  # Entrées du domaine X
-            outputs=model(inputs, training=False)['X'],  # Reconstructions pour le domaine X
+            outputs=reconstructions,  # Reconstructions pour le domaine X
             epoch=epoch + 1
         )
         save_loss_curves(epoch_losses, epoch=epoch + 1)
 
+    # Traçage des courbes des métriques
+    plot_metrics(epoch_metrics)
     print("Entraînement terminé.")
+
+def plot_metrics(metrics, output_dir="Résultats"):
+    """
+    Traçage des courbes PSNR, SSIM et BRISQUE en fonction des époques.
+    PSNR et BRISQUE sont tracés ensemble, tandis que SSIM est dans un graphique séparé.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    epochs = range(1, len(metrics['psnr']) + 1)
+
+    xticks_labels = [str(epoch) if epoch % 5 == 0 else '' for epoch in epochs]
+
+    # Graphique pour PSNR et BRISQUE
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, metrics['psnr'], label="PSNR", marker='o')
+    plt.plot(epochs, metrics['brisque'], label="BRISQUE", marker='o')
+    plt.xticks(epochs, xticks_labels)
+    plt.xlabel("Époque")
+    plt.ylabel("Valeur des Métriques")
+    plt.title("Évolution des Métriques (PSNR et BRISQUE)")
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(output_dir, "metrics_psnr_brisque.png"))
+    plt.close()
+
+    # Graphique séparé pour SSIM
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, metrics['ssim'], label="SSIM", marker='o', color='green')
+    plt.xticks(epochs, xticks_labels)
+    plt.xlabel("Époque")
+    plt.ylabel("SSIM")
+    plt.title("Évolution du SSIM")
+    plt.legend()
+    plt.grid()
+    plt.savefig(os.path.join(output_dir, "metrics_ssim.png"))
+    plt.close()
 
 if __name__ == "__main__":
     datasets = load_datasets(DATASET_DIR)

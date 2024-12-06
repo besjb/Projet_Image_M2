@@ -1,5 +1,4 @@
 import os
-import sys
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from model import MultiDomainVAE
@@ -9,11 +8,12 @@ import matplotlib.pyplot as plt
 from brisque import BRISQUE
 import cv2
 from skimage.metrics import peak_signal_noise_ratio as psnr, structural_similarity as ssim
+from tensorflow.keras.applications import VGG19
 
 DATASET_DIR = "Dataset"
 BATCH_SIZE = 16
 IMAGE_SIZE = (256, 256)
-LATENT_DIM = 256
+LATENT_DIM = 1024
 EPOCHS = 1
 BETA = 0.001
 MAX_BETA = 1.
@@ -26,6 +26,12 @@ PONDERATION_Y_TRAIN = 1.
 PONDERATION_Z_TRAIN = 1.
 
 SHUFFLE = False
+
+def get_feature_extractor(input_shape):
+    vgg = VGG19(include_top=False, weights='imagenet', input_shape=input_shape)
+    vgg.trainable = False
+    feature_extractor = Model(inputs=vgg.input, outputs=vgg.get_layer("block3_conv3").output)
+    return feature_extractor
 
 def calculate_brisque(images, epoch, output_dir="Résultats"):
     """
@@ -72,11 +78,13 @@ def save_loss_curves(epoch_losses, output_dir="Résultats", epoch=None):
     os.makedirs(output_dir, exist_ok=True)
     num_epochs = len(epoch_losses['reconstruction']) 
     epochs_range = range(1, num_epochs + 1)
+    xticks_labels = [str(epoch) if epoch % 5 == 0 else '' for epoch in epochs]
+
     plt.figure(figsize=(10, 6))
     plt.plot(epochs_range, epoch_losses['reconstruction'], label="Perte Reconstruction", marker='o')
     plt.plot(epochs_range, epoch_losses['kl'], label="Perte KL", marker='o')
     plt.plot(epochs_range, epoch_losses['total'], label="Perte Totale", marker='o')
-    plt.xticks(epochs_range)
+    plt.xticks(epochs, xticks_labels)
     plt.xlabel("Époque")
     plt.ylabel("Valeur de la Perte")
     plt.title("Évolution des Pertes")
@@ -158,14 +166,14 @@ def vae_loss(inputs, outputs, z_mean, z_log_var, feature_extractor=None, beta=1.
     alpha = tf.minimum(alpha_max, tf.exp(-beta))
     reconstruction_loss = alpha * reconstruction_loss
 
-    # Perte perceptuelle (facultative, nécessite un réseau pré-entraîné)
+    # Perte perceptuelle
     perceptual_loss_value = 0
     if feature_extractor is not None:
-        perceptual_loss_value = tf.reduce_mean(tf.abs(
-            feature_extractor(inputs) - feature_extractor(outputs)
-        ))
+        features_inputs = feature_extractor(inputs)
+        features_outputs = feature_extractor(outputs)
+        perceptual_loss_value = tf.reduce_mean(tf.abs(features_inputs - features_outputs))
 
-    # Perte SSIM (facultative)
+    # Perte SSIM
     ssim_loss = 1 - tf.reduce_mean(tf.image.ssim(inputs, outputs, max_val=1.0))
 
     # Perte KL (avec pondération beta)
@@ -175,17 +183,16 @@ def vae_loss(inputs, outputs, z_mean, z_log_var, feature_extractor=None, beta=1.
 
     # Somme des pertes
     total_loss = reconstruction_loss + kl_loss + perceptual_loss_value + ssim_loss
-    
-    return reconstruction_loss, kl_loss, total_loss
 
+    return reconstruction_loss, kl_loss, total_loss
+    
 def train_step(model, inputs, optimizer, beta):
     """Effectue une étape d'entraînement."""
     with tf.GradientTape() as tape:
         outputs, latent_params = model(inputs, training=True)
-        loss_X = vae_loss(inputs['X'], outputs['X'], latent_params[0], latent_params[1], beta=beta)
-        loss_Y = vae_loss(inputs['Y'], outputs['Y'], latent_params[2], latent_params[3], beta=beta)
-        loss_Z = vae_loss(inputs['Z'], outputs['Z'], latent_params[4], latent_params[5], beta=beta)
-        #total_loss = loss_X[2] + loss_Y[2] + loss_Z[2]
+        loss_X = vae_loss(inputs['X'], outputs['X'], latent_params['z_mean_X'], latent_params['z_log_var_X'], beta=beta)
+        loss_Y = vae_loss(inputs['Y'], outputs['Y'], latent_params['z_mean_Y'], latent_params['z_log_var_Y'], beta=beta)
+        loss_Z = vae_loss(inputs['Z'], outputs['Z'], latent_params['z_mean_Z'], latent_params['z_log_var_Z'], beta=beta)
         total_loss = PONDERATION_X_TRAIN * loss_X[2] + PONDERATION_Y_TRAIN * loss_Y[2] + PONDERATION_Z_TRAIN * loss_Z[2]
     
     gradients = tape.gradient(total_loss, model.trainable_variables)
@@ -269,10 +276,13 @@ def plot_metrics(metrics, output_dir="Résultats"):
     os.makedirs(output_dir, exist_ok=True)
     epochs = range(1, len(metrics['psnr']) + 1)
 
+    xticks_labels = [str(epoch) if epoch % 5 == 0 else '' for epoch in epochs]
+
     # Graphique pour PSNR et BRISQUE
     plt.figure(figsize=(10, 6))
     plt.plot(epochs, metrics['psnr'], label="PSNR", marker='o')
     plt.plot(epochs, metrics['brisque'], label="BRISQUE", marker='o')
+    plt.xticks(epochs, xticks_labels)
     plt.xlabel("Époque")
     plt.ylabel("Valeur des Métriques")
     plt.title("Évolution des Métriques (PSNR et BRISQUE)")
@@ -284,6 +294,7 @@ def plot_metrics(metrics, output_dir="Résultats"):
     # Graphique séparé pour SSIM
     plt.figure(figsize=(10, 6))
     plt.plot(epochs, metrics['ssim'], label="SSIM", marker='o', color='green')
+    plt.xticks(epochs, xticks_labels)
     plt.xlabel("Époque")
     plt.ylabel("SSIM")
     plt.title("Évolution du SSIM")

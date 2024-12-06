@@ -11,10 +11,10 @@ INPUT_FOLDER = "Assets"
 OUTPUT_FOLDER = "Restaurés"
 IMAGE_SIZE = (256, 256)
 
-INVERT = True
-PONDERATION_X = 0.      # Domaines des images propres (ça doit donner des images lisses)
+INVERT = False
+PONDERATION_X = 0.2      # Domaines des images propres (ça doit donner des images lisses)
 PONDERATION_Y = 0.2     # Domaine des images synthétiques (débruitage)
-PONDERATION_Z = 0.8     # Domaine des images anciennes (réparation des dégradations)
+PONDERATION_Z = 1.0     # Domaine des images anciennes (réparation des dégradations)
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -64,9 +64,9 @@ def process_images(model, input_folder, output_folder):
             continue
 
         inputs = {
-            'X': preprocessed_image,                # Entrée réelle pour X
+            'X': create_placeholder(batch_size=1),                # Entrée réelle pour X
             'Y': create_placeholder(batch_size=1),  # Placeholder pour Y
-            'Z': create_placeholder(batch_size=1)   # Placeholder pour Z
+            'Z': preprocessed_image   # Placeholder pour Z
         }
 
         # Reconstruit les images avec le modèle
