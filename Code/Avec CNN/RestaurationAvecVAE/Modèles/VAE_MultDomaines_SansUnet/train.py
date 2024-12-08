@@ -1,5 +1,4 @@
 import os
-import sys
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from model import MultiDomainVAE
@@ -75,25 +74,38 @@ def save_reconstructions(inputs, outputs, epoch):
 def save_loss_curves(epoch_losses, output_dir="Résultats", epoch=None):
     """
     Sauvegarde les courbes des pertes (reconstruction, KL, totale) dans un fichier PNG.
+    
+    Arguments :
+    - epoch_losses : dict contenant les pertes 'reconstruction', 'kl' et 'total' sous forme de listes.
+    - output_dir : str, chemin du répertoire où sauvegarder les graphiques.
+    - epoch : int ou None, numéro d'époque à inclure dans le nom du fichier (optionnel).
     """
     os.makedirs(output_dir, exist_ok=True)
-    num_epochs = len(epoch_losses['reconstruction']) 
+    
+    num_epochs = len(epoch_losses['reconstruction'])
     epochs_range = range(1, num_epochs + 1)
-    xticks_labels = [str(epoch) if epoch % 5 == 0 else '' for epoch in epochs]
+    xticks_labels = [str(epoch) if epoch == 1 or epoch % 5 == 0 else '' for epoch in epochs_range]
 
     plt.figure(figsize=(10, 6))
     plt.plot(epochs_range, epoch_losses['reconstruction'], label="Perte Reconstruction", marker='o')
     plt.plot(epochs_range, epoch_losses['kl'], label="Perte KL", marker='o')
+    plt.plot(epochs_range, epoch_losses['ssim'], label="Perte SSIM", marker='o')
+    plt.plot(epochs_range, epoch_losses['perceptual'], label="Perte Perceptuelle", marker='o')
     plt.plot(epochs_range, epoch_losses['total'], label="Perte Totale", marker='o')
-    plt.xticks(epochs, xticks_labels)
+
+    plt.xticks(epochs_range, xticks_labels, rotation=0)  # Rotation à 0 pour aligner les époques correctement
     plt.xlabel("Époque")
     plt.ylabel("Valeur de la Perte")
     plt.title("Évolution des Pertes")
     plt.legend()
     plt.grid()
+
     file_name = f"loss_curves_epoch{epoch}.png" if epoch is not None else "loss_curves.png"
-    plt.savefig(os.path.join(output_dir, file_name))
+    file_path = os.path.join(output_dir, file_name)
+
+    plt.savefig(file_path)
     plt.close()
+    print(f"Courbes des pertes sauvegardées dans : {file_path}")
 
 def align_datasets(datasets):
     """Aligne les datasets sur la longueur minimale commune."""
@@ -185,30 +197,46 @@ def vae_loss(inputs, outputs, z_mean, z_log_var, feature_extractor=None, beta=1.
     # Somme des pertes
     total_loss = reconstruction_loss + kl_loss + perceptual_loss_value + ssim_loss
 
-    return reconstruction_loss, kl_loss, total_loss
+    return reconstruction_loss, kl_loss, perceptual_loss_value, ssim_loss, total_loss
 
 def train_step(model, inputs, optimizer, beta):
     """Effectue une étape d'entraînement."""
     with tf.GradientTape() as tape:
         outputs, latent_params = model(inputs, training=True)
-        loss_X = vae_loss(inputs['X'], outputs['X'], latent_params[0], latent_params[1], beta=beta)
-        loss_Y = vae_loss(inputs['Y'], outputs['Y'], latent_params[2], latent_params[3], beta=beta)
-        loss_Z = vae_loss(inputs['Z'], outputs['Z'], latent_params[4], latent_params[5], beta=beta)
-        #total_loss = loss_X[2] + loss_Y[2] + loss_Z[2]
-        total_loss = PONDERATION_X_TRAIN * loss_X[2] + PONDERATION_Y_TRAIN * loss_Y[2] + PONDERATION_Z_TRAIN * loss_Z[2]
-    
+        
+        # Calcul des pertes pour chaque domaine
+        loss_X = vae_loss(inputs['X'], outputs['X'], latent_params['z_mean_X'], latent_params['z_log_var_X'], beta=beta)
+        loss_Y = vae_loss(inputs['Y'], outputs['Y'], latent_params['z_mean_Y'], latent_params['z_log_var_Y'], beta=beta)
+        loss_Z = vae_loss(inputs['Z'], outputs['Z'], latent_params['z_mean_Z'], latent_params['z_log_var_Z'], beta=beta)
+        
+        # Pondération des pertes perceptuelles pour le calcul de total_loss
+        reconstruction_loss = loss_X[0] + loss_Y[0] + loss_Z[0]
+        kl_loss = loss_X[1] + loss_Y[1] + loss_Z[1]
+        perceptual_loss = loss_X[2] + loss_Y[2] + loss_Z[2]
+        ssim_loss = loss_X[3] + loss_Y[3] + loss_Z[3]
+
+        # Assurez-vous que les pondérations sont des scalaires ou tenseurs compatibles TensorFlow
+        total_loss = (
+            tf.convert_to_tensor(PONDERATION_X_TRAIN, dtype=tf.float32) * loss_X[-1] +
+            tf.convert_to_tensor(PONDERATION_Y_TRAIN, dtype=tf.float32) * loss_Y[-1] +
+            tf.convert_to_tensor(PONDERATION_Z_TRAIN, dtype=tf.float32) * loss_Z[-1]
+        )
+
+    # Calcul des gradients et application
     gradients = tape.gradient(total_loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+
+    # Renvoie les différentes pertes pour le suivi
     return loss_X, loss_Y, loss_Z, total_loss
 
 def train(model, datasets, epochs, optimizer, anneal_epochs=ANNEAL_EPOCH, max_beta=MAX_BETA):
     """Boucle d'entraînement principale avec suivi de PSNR, SSIM et BRISQUE."""
-    epoch_losses = {'reconstruction': [], 'kl': [], 'total': []}  # Suivi des pertes / époque
+    epoch_losses = {'reconstruction': [], 'kl': [], 'ssim': [], 'perceptual': [], 'total': []}  # Suivi des pertes / époque
     epoch_metrics = {'psnr': [], 'ssim': [], 'brisque': []}  # PSNR, SSIM, BRISQUE par époque
 
     for epoch in range(epochs):
         print(f"Époque {epoch + 1}/{epochs}")
-        epoch_loss = {'reconstruction': [], 'kl': [], 'total': []}
+        epoch_loss = {'reconstruction': [], 'kl': [], 'ssim': [], 'perceptual': [], 'total': []}
 
         BETA = calculate_beta(epoch, max_beta=max_beta, anneal_epochs=anneal_epochs)  # MAJ de beta
         
@@ -219,23 +247,31 @@ def train(model, datasets, epochs, optimizer, anneal_epochs=ANNEAL_EPOCH, max_be
                 
                 # Entraînement sur ce batch
                 loss_X, loss_Y, loss_Z, total_loss = train_step(model, inputs, optimizer, beta=BETA)
-                
-                epoch_loss['reconstruction'].append(loss_X[0].numpy() + loss_Y[0].numpy() + loss_Z[0].numpy())
-                epoch_loss['kl'].append(loss_X[1].numpy() + loss_Y[1].numpy() + loss_Z[1].numpy())
-                epoch_loss['total'].append(total_loss.numpy())
+
+                reconstruction_loss = tf.reduce_sum([loss_X[0], loss_Y[0], loss_Z[0]])
+                kl_loss = tf.reduce_sum([loss_X[1], loss_Y[1], loss_Z[1]])
+                perceptual_loss = tf.reduce_sum([loss_X[2], loss_Y[2], loss_Z[2]])
+                ssim_loss = tf.reduce_sum([loss_X[3], loss_Y[3], loss_Z[3]])
+                total_loss = tf.reduce_sum([loss_X[-1], loss_Y[-1], loss_Z[-1]])
+
+                epoch_loss['reconstruction'].append(float(reconstruction_loss.numpy()))
+                epoch_loss['kl'].append(float(kl_loss.numpy()))
+                epoch_loss['perceptual'].append(float(perceptual_loss.numpy()))
+                epoch_loss['ssim'].append(float(ssim_loss.numpy()))
+                epoch_loss['total'].append(float(total_loss.numpy()))
                 
                 pbar.set_postfix({'Perte Moyenne': f"{np.mean(epoch_loss['total']):.6f}"})
                 pbar.update(1)
 
         # Calcul des moyennes pour cette époque
-        epoch_losses['reconstruction'].append(np.mean(epoch_loss['reconstruction']))
-        epoch_losses['kl'].append(np.mean(epoch_loss['kl']))
-        epoch_losses['total'].append(np.mean(epoch_loss['total']))
+        for key in epoch_losses.keys():
+            epoch_losses[key].append(np.mean(epoch_loss[key]))
 
         # Évaluation des reconstructions pour PSNR, SSIM, et BRISQUE
         reconstructions = model(inputs, training=False)['X']
         psnr_scores = []
         ssim_scores = []
+        brisque_scores = []
 
         for original, reconstructed in zip(inputs['X'], reconstructions):
             original_img = (original.numpy().squeeze() * 255).astype("uint8")
@@ -244,10 +280,16 @@ def train(model, datasets, epochs, optimizer, anneal_epochs=ANNEAL_EPOCH, max_be
             # Calculer PSNR et SSIM
             psnr_scores.append(psnr(original_img, reconstructed_img, data_range=255))
             ssim_scores.append(ssim(original_img, reconstructed_img, data_range=255))
+            if len(reconstructed_img.shape) == 2:
+                reconstructed_img = cv2.cvtColor(reconstructed_img, cv2.COLOR_GRAY2RGB)
+            
+            brisque_evaluator = BRISQUE()
+            brisque_score = brisque_evaluator.score(reconstructed_img)
+            brisque_scores.append(brisque_score)
 
         avg_psnr = np.mean(psnr_scores)
         avg_ssim = np.mean(ssim_scores)
-        avg_brisque = calculate_brisque(inputs['X'], epoch + 1, output_dir="Résultats")
+        avg_brisque = np.mean(brisque_scores)
 
         # Enregistrer les métriques moyennes
         epoch_metrics['psnr'].append(avg_psnr)
@@ -266,7 +308,6 @@ def train(model, datasets, epochs, optimizer, anneal_epochs=ANNEAL_EPOCH, max_be
         )
         save_loss_curves(epoch_losses, epoch=epoch + 1)
 
-    # Traçage des courbes des métriques
     plot_metrics(epoch_metrics)
     print("Entraînement terminé.")
 

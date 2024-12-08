@@ -12,9 +12,9 @@ OUTPUT_FOLDER = "Restaurés"
 IMAGE_SIZE = (256, 256)
 
 INVERT = False
-PONDERATION_X = 0.2      # Domaines des images propres (ça doit donner des images lisses)
-PONDERATION_Y = 0.2     # Domaine des images synthétiques (débruitage)
-PONDERATION_Z = 1.0     # Domaine des images anciennes (réparation des dégradations)
+PONDERATION_X = 0.3      # Domaines des images propres (ça doit donner des images lisses)
+PONDERATION_Y = 0.3     # Domaine des images synthétiques (débruitage)
+PONDERATION_Z = 0.4     # Domaine des images anciennes (réparation des dégradations)
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 

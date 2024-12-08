@@ -6,17 +6,11 @@ def wiener_deconvolution(image, kernel, noise_var, signal_var):
     kernel_ft = np.fft.fft2(kernel, s=image.shape)
     image_ft = np.fft.fft2(image)
     kernel_ft_conj = np.conj(kernel_ft) 
-
-    # Ajout d'un petit epsilon pour éviter les divisions par des valeurs très faibles
-    epsilon = 1e-6
-    denominator = np.abs(kernel_ft)**2 + (noise_var / signal_var) + epsilon
+    denominator = np.abs(kernel_ft)**2 + (noise_var / signal_var)
     numerator = kernel_ft_conj * image_ft
     result_ft = numerator / denominator
-
     result = np.fft.ifft2(result_ft)
-    result = np.abs(result)
-    result = np.clip(result, 0, 255)  # Limite la plage pour éviter les pixels noirs
-    return result.astype(np.uint8)
+    return np.abs(result)
 
 # Estimation des variances de bruit et signal
 def estimate_noise_and_signal_variance(image, filtered_image, kernel):
@@ -59,15 +53,6 @@ def calculate_ssim(original, restored):
     ssim_value = numerator / denominator
     return ssim_value
 
-# Distance de l'histogramme
-def histogram_distance(image1, image2):
-    hist1 = cv2.calcHist([image1], [0], None, [256], [0, 256])
-    hist2 = cv2.calcHist([image2], [0], None, [256], [0, 256])
-    hist1 /= hist1.sum()
-    hist2 /= hist2.sum()
-    hist_diff = cv2.compareHist(hist1, hist2, cv2.HISTCMP_KL_DIV)
-    return hist_diff
-
 
 mask = None
 drawing = False
@@ -88,45 +73,15 @@ if image is None:
     print("Impossible de charger l'image.")
     exit(-1)
 
-cv2.imshow("Image originale", image)
-print("1: Flou Gaussien")
-print("2: Flou Médian")
-print("3: Flou Bilatéral")
-print("q: Quitter")
-
-key = cv2.waitKey(0) & 0xFF
-
-if key == ord('1'):  # Flou Gaussien
-    kernel_size = (7, 7)
-    sigma = 0
-    filtered_image = cv2.GaussianBlur(image, kernel_size, sigma)
-    cv2.imshow("Image filtree (Gaussien)", filtered_image)
-
-elif key == ord('2'):  # Flou Médian
-    kernel_size = 7
-    filtered_image = cv2.medianBlur(image, kernel_size)
-    cv2.imshow("Image filtree (Median)", filtered_image)
-
-elif key == ord('3'):  # Flou Bilatéral
-    diameter = 15  
-    sigma_color = 75  
-    sigma_space = 75  
-    filtered_image = cv2.bilateralFilter(image, diameter, sigma_color, sigma_space)
-    cv2.imshow("Image filtree (Bilateral)", filtered_image)
-
-damaged_img = filtered_image.copy()
+damaged_img = image.copy()
 height, width = damaged_img.shape[:2]
 mask = np.ones((height, width), dtype=np.uint8) * 255 
 
 cv2.namedWindow("Draw Mask")
 cv2.setMouseCallback("Draw Mask", draw_mask)
 
-# Égalisation d'histogramme
-equalized_image2 = cv2.equalizeHist(damaged_img)
-cv2.imshow("Image egalisee2", equalized_image2)
-
 while True:
-    damaged_img_color = cv2.cvtColor(equalized_image2, cv2.COLOR_GRAY2BGR)
+    damaged_img_color = cv2.cvtColor(damaged_img, cv2.COLOR_GRAY2BGR)
 
     mask_display = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
     combined_display = cv2.addWeighted(damaged_img_color, 0.5, mask_display, 0.5, 0)
@@ -144,33 +99,16 @@ while True:
         cv2.imwrite('Assets/inpainted_image.jpg', inpainted_img)
         print("Inpainted image saved as 'Assets/inpainted_image.jpg'")
 
-        # Égalisation d'histogramme
-        equalized_image = cv2.equalizeHist(inpainted_img)
-        cv2.imshow("Image egalisee", equalized_image)
-
-        # Déconvolution
-        noise_var, signal_var = estimate_noise_and_signal_variance(image, inpainted_img, np.ones((15, 15)) / 50)
-        kernel = np.ones((3, 3)) / 25
-        num_iterations = 30 
-        deconvolved_image = inpainted_img
-
-        for i in range(num_iterations):
-            deconvolved_image = wiener_deconvolution(deconvolved_image, kernel, noise_var, signal_var)
-            cv2.imshow("Image Deconvoluee", deconvolved_image.astype(np.uint8))
-
-
         # Expansion dynamique
-        expanded_image = dynamic_range_expansion(deconvolved_image)
+        expanded_image = dynamic_range_expansion(inpainted_img)
         cv2.imshow("Expansion dynamique de l'image (apres deconvolution)", expanded_image)
 
         # Calcul des métriques de qualité entre image originale et l'image restaurée
         psnr_value = calculate_psnr(image, expanded_image)
         ssim_value = calculate_ssim(image, expanded_image)
-        histogram_distance = histogram_distance(image, expanded_image)
 
         print(f"PSNR: {psnr_value} dB")
         print(f"SSIM: {ssim_value}")
-        print(f"Distance entre les histogrammes (Bhattacharyya): {histogram_distance}")
 
     elif key == ord('q'):
         break

@@ -85,11 +85,14 @@ class MultiDomainVAE(Model):
                 'X': reconstructed_X,
                 'Y': reconstructed_Y,
                 'Z': reconstructed_Z
-            }, [z_mean_X, z_log_var_X, z_mean_Y, z_log_var_Y, z_mean_Z, z_log_var_Z]
+            }, {
+                'z_mean_X': z_mean_X, 'z_log_var_X': z_log_var_X,
+                'z_mean_Y': z_mean_Y, 'z_log_var_Y': z_log_var_Y,
+                'z_mean_Z': z_mean_Z, 'z_log_var_Z': z_log_var_Z
+            }
         else:
             return {
                 'X': reconstructed_X,
                 'Y': reconstructed_Y,
                 'Z': reconstructed_Z
             }
-

@@ -1,7 +1,7 @@
 import os
-from PIL import Image, ImageDraw
 import numpy as np
 import random
+from PIL import Image, ImageDraw
 
 input_folder = 'Dataset/Real_Photos'
 output_folder_with_degradations = 'Dataset/Synthesized_Old_Photos'
@@ -40,68 +40,69 @@ def resize_image(image, size=(256, 256)):
     try:
         if not callable(getattr(image, "resize", None)):
             raise TypeError(f"La méthode 'resize' n'est pas callable sur l'objet : {type(image)}")
-        
-        resized_image = image.resize(size, Image.ANTIALIAS)
+
+        resized_image = image.resize(size, Image.Resampling.LANCZOS)
         return resized_image
     except Exception as e:
         print(f"Erreur lors du redimensionnement : {e}")
         raise
-
-def add_mask_to_image(image, mask_count=3, mask_size_range=(20, 50)):
+        
+def AjoutLignes(image, num_lines=5, max_deviation=5):
     """
-    Ajoute des masques (zones noires) aléatoires sur l'image.
-    Args:
-        image (PIL.Image): Image sur laquelle appliquer les masques.
-        mask_count (int): Nombre de masques aléatoires à ajouter.
-        mask_size_range (tuple): Intervalle pour la taille des masques (min, max).
-    Returns:
-        PIL.Image: Image avec masques appliqués.
+    Ajoute des lignes aléatoires bruitées continues à l'image.
     """
-    draw_on_image = ImageDraw.Draw(image)
-    for _ in range(mask_count):
-        # Détermine une position et une taille aléatoire pour le masque
-        x0 = random.randint(0, image.width - mask_size_range[1])
-        y0 = random.randint(0, image.height - mask_size_range[1])
-        size = random.randint(*mask_size_range)
-        x1 = x0 + size
-        y1 = y0 + size
-        # Dessine un rectangle noir pour simuler une zone masquée
-        draw_on_image.rectangle([x0, y0, x1, y1], fill=0)  # Noir
-    return image
+    # Validation du type et du mode de l'image
+    if not isinstance(image, Image.Image):
+        raise ValueError("L'entrée doit être une instance de PIL.Image.Image")
+    
+    if image.mode not in ["L", "RGB"]:
+        print(f"Conversion du mode {image.mode} au mode 'L'.")
+        image = image.convert("L")
 
-def add_cracks_to_image(image):
-    """Ajoute des craquelures simulées (gris clair à blanc) à l'image."""
-    draw_on_image = ImageDraw.Draw(image)
-    for _ in range(random.randint(5, 15)):  # Nombre aléatoire de craquelures
-        start_x = random.randint(0, image.width)
-        start_y = random.randint(0, image.height)
-        end_x = start_x + random.randint(-50, 50)
-        end_y = start_y + random.randint(-50, 50)
-        draw_on_image.line((start_x, start_y, end_x, end_y), fill=random.randint(200, 255), width=random.randint(1, 3))
-    return image
+    width, height = image.size
+    draw = ImageDraw.Draw(image)
 
-def add_stains_to_image(image):
-    """Ajoute des taches simulées (gris clair à blanc) sur l'image."""
-    draw_on_image = ImageDraw.Draw(image)
-    for _ in range(random.randint(3, 10)):  # Nombre aléatoire de taches
-        center_x = random.randint(0, image.width)
-        center_y = random.randint(0, image.height)
-        radius = random.randint(10, 30)
-        draw_on_image.ellipse((center_x, center_y, center_x + radius, center_y + radius), fill=random.randint(200, 255))
-    return image
+    for _ in range(num_lines):
+        line_color = 255  # Blanc
+        line_thickness = random.randint(1, 15)
+        orientation = random.choice(["horizontal", "vertical", "diagonal"])
+        segments = random.randint(10, 30)  # Nombre de segments
 
+        # Point de départ initial
+        start_x = random.randint(0, width - 1)
+        start_y = random.randint(0, height - 1)
+        current_x, current_y = start_x, start_y
+
+        for _ in range(segments):
+            if orientation == "horizontal":
+                new_x = min(width - 1, current_x + random.randint(5, 20))
+                new_y = max(0, min(height - 1, current_y + random.randint(-max_deviation, max_deviation)))
+            elif orientation == "vertical":
+                new_y = min(height - 1, current_y + random.randint(5, 20))
+                new_x = max(0, min(width - 1, current_x + random.randint(-max_deviation, max_deviation)))
+            elif orientation == "diagonal":
+                new_x = max(0, min(width - 1, current_x + random.randint(-20, 20)))
+                new_y = max(0, min(height - 1, current_y + random.randint(-20, 20)))
+
+            # Dessiner les lignes sur l'image
+            draw.line([(current_x, current_y), (new_x, new_y)], fill=line_color, width=line_thickness)
+
+            current_x, current_y = new_x, new_y
+            if current_x >= width - 1 or current_y >= height - 1:
+                break
+
+    return image
+    
 def add_noise_to_image(image):
     """Ajoute du bruit aléatoire sur l'image."""
     np_image = np.array(image)
-    noise = np.random.normal(0, 8, np_image.shape)  # Bruit gaussien
+    noise = np.random.normal(0, 3, np_image.shape)  # Bruit gaussien
     noisy_image = np.clip(np_image + noise, 0, 255).astype('uint8')
     return Image.fromarray(noisy_image)
 
 def apply_degradations_to_image(image):
     """Applique une série de dégradations naturelles à l'image."""
-    image = add_cracks_to_image(image)
-    image = add_mask_to_image(image)
-    image = add_stains_to_image(image)
+    image = AjoutLignes(image)
     image = add_noise_to_image(image)
     return image
 
